@@ -18,3 +18,7 @@ bootstrap.json
 
 # Внутренние заметки/инструкции/отчёты — НЕ коммитим.
 /.md/
+
+# Private pilot inventory, credentials and migration review documents.
+/.private/
+/deploy/.private/

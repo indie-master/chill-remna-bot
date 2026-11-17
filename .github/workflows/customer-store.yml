@@ -1,0 +1,46 @@
+name: customer-store-pilot
+
+on:
+  push:
+    branches: [codex/customer-store]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate isolated deployment
+        run: |
+          mkdir -p deploy/.private
+          printf 'synthetic-test-value\n' > deploy/.private/customer-bot-token
+          docker compose --env-file deploy/pilot.env.example -f deploy/compose.pilot.yaml --profile pilot config --quiet
+      - name: Build without publishing
+        run: docker build -f deploy/Dockerfile.pilot -t customer-store:ci .
+      - name: Check runtime isolation and readable files
+        run: |
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            --entrypoint /bin/sh customer-store:ci -ec '
+              test "$(id -u)" = 10001
+              test -r /app/LICENSE
+              test -x /app/bot
+              test -x /app/migration-plan
+              test -w /data
+              test ! -e /var/run/docker.sock
+              ! command -v docker
+            '
+      - name: Verify secret validation without network access
+        run: |
+          set +e
+          docker run --rm --network none --read-only --cap-drop ALL \
+            -e BOT_TOKEN_FILE=/nonexistent -e ADMIN_TELEGRAM_ID=12345 customer-store:ci > secret-check.log 2>&1
+          code=$?
+          set -e
+          test "$code" = 1
+          grep -q 'BOT_TOKEN_FILE must name' secret-check.log
+          ! grep -q '/nonexistent' secret-check.log

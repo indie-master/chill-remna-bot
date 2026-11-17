@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "complete": true,
+  "total": 3,
+  "users": [
+    {
+      "uuid": "example-personal",
+      "telegramId": 10001,
+      "username": "example_personal",
+      "status": "ACTIVE",
+      "expireAt": "2027-01-01T09:00:00Z",
+      "trafficLimitBytes": 17179869184,
+      "trafficLimitStrategy": "DAY",
+      "hwidDeviceLimit": 4,
+      "activeInternalSquads": [{"uuid": "example-squad"}]
+    },
+    {
+      "uuid": "example-family",
+      "telegramId": 10001,
+      "username": "example_family",
+      "status": "ACTIVE",
+      "expireAt": "2027-03-01T09:00:00Z",
+      "trafficLimitBytes": 0,
+      "trafficLimitStrategy": "NO_RESET",
+      "hwidDeviceLimit": 8,
+      "activeInternalSquads": [{"uuid": "example-family-squad"}]
+    },
+    {
+      "uuid": "example-unassigned",
+      "username": "example_unassigned",
+      "status": "EXPIRED",
+      "expireAt": "2026-01-01T09:00:00Z",
+      "trafficLimitBytes": 17179869184,
+      "trafficLimitStrategy": "DAY",
+      "hwidDeviceLimit": 4,
+      "activeInternalSquads": []
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+name: customer-store-pilot
+
+services:
+  store:
+    profiles: [pilot]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.pilot
+    image: customer-store:pilot
+    user: "10001:10001"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 0.75
+    restart: "no"
+    stop_grace_period: 45s
+    environment:
+      BOT_TOKEN_FILE: /run/secrets/customer_bot_token
+      ADMIN_TELEGRAM_ID: ${STORE_ADMIN_TELEGRAM_ID:?Set STORE_ADMIN_TELEGRAM_ID in the private pilot env file}
+      DATA_DIR: /data
+      DB_KIND: sqlite
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:${STORE_HTTP_PORT:-8788}:8080"
+    volumes:
+      - store-data:/data
+    secrets:
+      - customer_bot_token
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      start_period: 5m
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  store-data:
+    name: customer-store-pilot-data
+
+secrets:
+  customer_bot_token:
+    file: ./.private/customer-bot-token

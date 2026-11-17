@@ -24,3 +24,5 @@ scripts/
 bot
 /out
 .gotool/
+.private/
+deploy/.private/

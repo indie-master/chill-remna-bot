@@ -1982,7 +1982,9 @@ func (c *Client) findByTelegram(ctx context.Context, telegramID int64) (*panelUs
 // gone=true means the route can't answer this (not there — wrong base URL, or
 // a panel older than 2.8.0 — or there without the telegramId filter, as on 2.8.x).
 func (c *Client) findByTelegramStream(ctx context.Context, telegramID int64) (u *panelUser, gone bool, err error) {
-	path := "/api/users/stream?size=1&telegramId=" + strconv.FormatInt(telegramID, 10)
+	// Two results are enough to detect ambiguous ownership. Choosing the first
+	// result can renew or expose the wrong account during a migration.
+	path := "/api/users/stream?size=2&telegramId=" + strconv.FormatInt(telegramID, 10)
 	resp, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("нет связи с панелью: %w", err)
@@ -2004,20 +2006,20 @@ func (c *Client) findByTelegramStream(ctx context.Context, telegramID int64) (u 
 	}
 	// Never trust the filter blindly: a panel (or anything in front of it) that
 	// ignores telegramId would otherwise hand out another subscriber's account.
+	var found *panelUser
 	for i := range env.Response.Users {
 		if env.Response.Users[i].TelegramID != telegramID {
-			continue
+			return nil, true, nil
 		}
-		c.noteUser(&env.Response.Users[i])
-		return &env.Response.Users[i], false, nil
+		if found != nil {
+			return nil, false, ErrAmbiguousAccount
+		}
+		found = &env.Response.Users[i]
 	}
-	if len(env.Response.Users) > 0 {
-		// Someone else came back, so the filter was not applied (2.8.x has this
-		// route without it). Treat it like a missing route: "no such user" here
-		// would let a renewal create a second account.
-		return nil, true, nil
+	if found != nil {
+		c.noteUser(found)
 	}
-	return nil, false, nil
+	return found, false, nil
 }
 
 // findByTelegramLegacy is the pre-3.0.0 lookup, removed by the panel in 3.0.0.
@@ -2044,7 +2046,13 @@ func (c *Client) findByTelegramLegacy(ctx context.Context, telegramID int64) (u 
 	}
 	var arr []panelUser
 	if json.Unmarshal(env.Response, &arr) == nil {
+		if len(arr) > 1 {
+			return nil, false, ErrAmbiguousAccount
+		}
 		if len(arr) > 0 {
+			if arr[0].TelegramID != 0 && arr[0].TelegramID != telegramID {
+				return nil, false, ErrAccountOwnerMismatch
+			}
 			c.noteUser(&arr[0])
 			return &arr[0], false, nil
 		}
@@ -2057,6 +2065,9 @@ func (c *Client) findByTelegramLegacy(ctx context.Context, telegramID int64) (u 
 	}
 	var one panelUser
 	if json.Unmarshal(env.Response, &one) == nil && !one.ref().Empty() {
+		if one.TelegramID != 0 && one.TelegramID != telegramID {
+			return nil, false, ErrAccountOwnerMismatch
+		}
 		c.noteUser(&one)
 		return &one, false, nil
 	}
