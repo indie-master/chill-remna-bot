@@ -101,7 +101,7 @@ func reference(uuid string, id json.Number) (string, error) {
 func customerKey(raw string) (string, error) {
 	kind, value, ok := strings.Cut(raw, ":")
 	if !ok {
-		return "", errors.New("customer key must use tg: or email:")
+		return "", errors.New("customer key must start with a tg or email prefix")
 	}
 	switch kind {
 	case "tg":
