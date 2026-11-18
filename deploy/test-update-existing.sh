@@ -88,6 +88,13 @@ printf '\n# changed after prepare\n' >> "$fixture/compose.yaml"
 if sudo bash "$source_dir/deploy/update-existing.sh" apply "$fixture" "$container" "$revision"; then exit 1; fi
 [[ $(docker inspect -f '{{.Id}}' "$container") == "$old_id" ]]
 cp "$fixture/compose.original" "$fixture/compose.yaml"
+# Changing the actual database selection after prepare must be rejected before
+# stopping the receiver, even when the Compose configuration is unchanged.
+docker exec "$container" sh -ec 'cp /data/bootstrap.json /data/bootstrap.saved; printf "{}" > /data/bootstrap.json'
+if sudo bash "$source_dir/deploy/update-existing.sh" apply "$fixture" "$container" "$revision"; then exit 1; fi
+[[ $(docker inspect -f '{{.Id}}' "$container") == "$old_id" ]]
+[[ $(docker inspect -f '{{.State.Running}}' "$container") == true ]]
+docker exec "$container" sh -ec 'cp /data/bootstrap.saved /data/bootstrap.json; rm /data/bootstrap.saved'
 # An unreadable file makes the restricted backup helper fail. The original
 # container must resume, retaining its identity, before any image handoff.
 docker exec "$container" sh -ec 'touch /data/backup-denied; chmod 000 /data/backup-denied'

@@ -100,6 +100,14 @@ sha256sum --check --status "$stage/config.sha256" || { echo 'Configuration chang
 "${d[@]}" compose -p "$project" --project-directory "$install_dir" -f "$stage/active.yaml" config --quiet
 wait_seconds=${STORE_HEALTH_WAIT_SECONDS:-90}
 [[ "$wait_seconds" =~ ^[0-9]{1,3}$ && "$wait_seconds" -gt 0 && "$wait_seconds" -le 180 ]] || { echo 'Invalid readiness timeout.' >&2; exit 1; }
+# Preparation can precede handoff by hours. Recheck the current configured DB
+# and schema without stopping the receiver or reusing an older copied database.
+apply_check=$(mktemp -d "$stage/check-apply.XXXXXX")
+"${d[@]}" run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+  --memory 512m --cpus 1 --pids-limit 64 --tmpfs /tmp:size=32m,mode=1777 \
+  --mount "type=volume,src=$data_volume,dst=/source,readonly" \
+  --mount "type=bind,src=$apply_check,dst=/check" \
+  --entrypoint /app/store-check "$image" --bootstrap-dir /source --source /source/bot.db --copy /check/bot.db
 
 stopped=false
 handoff=false
