@@ -67,7 +67,7 @@ EOF
     --memory 512m --cpus 1 --pids-limit 64 --tmpfs /tmp:size=32m,mode=1777 \
     --mount "type=volume,src=$data_volume,dst=/source,readonly" \
     --mount "type=bind,src=$stage/check,dst=/check" \
-    --entrypoint /app/store-check "$image" --source /source/bot.db --copy /check/bot.db
+    --entrypoint /app/store-check "$image" --bootstrap-dir /source --source /source/bot.db --copy /check/bot.db
   cat > "$stage/overlay.yaml" <<EOF
 services:
   bot:

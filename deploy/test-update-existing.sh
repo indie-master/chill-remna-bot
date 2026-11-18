@@ -40,7 +40,7 @@ db.execute("INSERT INTO users (telegram_id, p2p_approved, created_at, balance) V
 db.commit()
 db.close()
 (out / 'secret.key').write_text('synthetic-test-key-only')
-(out / 'bootstrap.json').write_text('{}')
+(out / 'bootstrap.json').write_text('{"db_kind":"sqlite","dsn":"/data/bot.db"}')
 PY
 docker build --build-arg "COMMIT=$revision" -t "$image" -f "$source_dir/Dockerfile" "$source_dir"
 docker volume create "$volume" >/dev/null
