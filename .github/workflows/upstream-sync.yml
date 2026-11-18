@@ -1,0 +1,48 @@
+name: Review upstream updates
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: review-upstream-updates
+  cancel-in-progress: false
+
+jobs:
+  review:
+    if: github.repository == 'indie-master/chill-remna-bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Open a review for upstream changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          git fetch --no-tags origin refs/heads/codex/customer-store:refs/remotes/origin/customer-store
+          git fetch --no-tags https://github.com/Mrvibecodic/chill-remna-bot.git refs/heads/main:refs/remotes/upstream/main
+          upstream=$(git rev-parse refs/remotes/upstream/main)
+          if git merge-base --is-ancestor "$upstream" refs/remotes/origin/customer-store; then
+            echo 'The store already contains upstream main.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # A branch that points at the reviewed upstream commit preserves its
+          # ancestry. A merge commit keeps both upstream and store changes.
+          branch="codex/upstream-${upstream:0:12}"
+          if gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base codex/customer-store --state open --json number --jq 'length' | grep -qx 1; then
+            exit 0
+          fi
+          git -c core.hooksPath=/dev/null push origin "$upstream:refs/heads/$branch"
+          link=$(gh pr create --repo "$GITHUB_REPOSITORY" --head "$branch" --base codex/customer-store \
+            --title "Merge upstream main (${upstream:0:12})" \
+            --body 'Merge with a merge commit after checks. Review conflicts in the app, UI and SQL migration versions before merging. This PR does not deploy the store.')
+          printf 'Upstream review: %s\n' "$link" >> "$GITHUB_STEP_SUMMARY"
