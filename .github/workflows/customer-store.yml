@@ -10,6 +10,13 @@ permissions:
   contents: read
 
 jobs:
+  existing-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify existing-install preparation, backup and handoff
+        run: bash deploy/test-update-existing.sh
   browser-contract:
     runs-on: ubuntu-latest
     steps:
