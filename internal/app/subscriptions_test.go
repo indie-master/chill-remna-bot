@@ -26,15 +26,20 @@ type subscriptionPanel struct {
 	expiry         map[string]string
 	writes         []string
 	failAfterWrite bool
+	connectBase    string
 }
 
 func (p *subscriptionPanel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	user := func(ref string) map[string]any {
+		base := p.connectBase
+		if base == "" {
+			base = "https://subscriptions.example.invalid"
+		}
 		return map[string]any{"uuid": ref, "username": ref, "telegramId": 10001, "status": "ACTIVE",
 			"expireAt": p.expiry[ref], "hwidDeviceLimit": 3, "trafficLimitStrategy": "DAY",
-			"subscriptionUrl": "https://subscriptions.example.invalid/" + ref}
+			"subscriptionUrl": base + "/" + ref}
 	}
 	respond := func(v any) { _ = json.NewEncoder(w).Encode(map[string]any{"response": v}) }
 	switch {
@@ -91,6 +96,36 @@ func newSubscriptionApp(t *testing.T) (*App, *subscriptionPanel) {
 		t.Fatal(err)
 	}
 	return a, panel
+}
+
+func TestMiniConnectFallsBackForEachSelectedSubscription(t *testing.T) {
+	a, panel := newSubscriptionApp(t)
+	page := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(page.Close)
+	panel.mu.Lock()
+	panel.connectBase = page.URL
+	panel.mu.Unlock()
+	ctx := context.Background()
+	subs, err := a.discoverSubscriptions(ctx, 10001)
+	if err != nil || len(subs) != 2 {
+		t.Fatalf("expected two panel accounts: %v", err)
+	}
+	for _, sub := range subs {
+		scoped, err := a.MiniSubscriptionScope(ctx, 10001, sub.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := a.MiniConnect(scoped, 10001)
+		want := page.URL + "/" + sub.PanelRef
+		if got.SubURL != want || len(got.Android) != 2 || len(got.IOS) != 2 {
+			t.Fatalf("wrong scoped app catalog: %+v, want %s", got, want)
+		}
+		for _, app := range append(got.IOS, got.Android...) {
+			if app.Deeplink != strings.ToLower(app.Name)+"://add/"+want {
+				t.Fatalf("%s imported a different subscription: %q", app.Name, app.Deeplink)
+			}
+		}
+	}
 }
 
 func TestSubscriptionPaymentFollowsInvoiceAcrossSelectionChanges(t *testing.T) {

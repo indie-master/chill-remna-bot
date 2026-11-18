@@ -1167,7 +1167,7 @@ SCREENS.connect=async function(a){
     var ps=cnPlatforms(a.c),want=detectOS();a.key=ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||'');
     if(!CUR||CUR.arg!==a)return;}
   var c=a.c,ps=cnPlatforms(c),cur=null;ps.forEach(function(p){if(p.key===a.key)cur=p;});if(!cur)cur=ps[0]||null;
-  var sub=c.sub_url||(STATE.sub&&STATE.sub.sub_url)||'';
+  var sub=c.sub_url||'';
   var h=backBtn()+'<div class="h1" style="margin-top:8px">'+esc(T('conn_title'))+'</div><div class="hint">'+esc(T('conn_text'))+'</div>';
   var hT=h;h='';
   if(ps.length>1){h+='<div class="seg">';ps.forEach(function(p){h+='<button class="'+(cur&&p.key===cur.key?'on':'')+'" onclick="cnPlat(\''+jsq(p.key)+'\')">'+esc(p.label)+'</button>';});h+='</div>';}
@@ -1178,8 +1178,8 @@ SCREENS.connect=async function(a){
     h+='<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span class="h2" style="font-size:17px;min-width:0">'+esc(x.name)+'</span>'+(x.featured?'<span class="badge acc">'+esc(T('recommended'))+'</span>':'')+'</div>';
     if(x.add_desc)h+='<div class="hint">'+esc(x.add_desc)+'</div>';
     h+='<div class="stack" style="margin-top:12px">';
-    if(x.deeplink)h+='<button class="btn" onclick="openDeep(\''+jsq(x.deeplink)+'\')">'+IC.plus+esc(T('add_sub'))+'</button>';
     (x.installs||[]).forEach(function(b){h+='<button class="btn sec" onclick="openL(\''+jsq(b.url)+'\')">'+IC.download+esc(b.text||T('install'))+'</button>';});
+    h+=connectImportActions(x,sub,T('add_sub'),STATE.lang==='en'?'Import in browser':'Импорт через браузер');
     (x.copies||[]).forEach(function(b){h+='<button class="btn sec" onclick="copy(\''+jsq(b.url)+'\')">'+IC.copy+esc(b.text||T('copy_link'))+'</button>';});
     h+='</div>';
     (x.more||[]).forEach(function(b){
@@ -1191,7 +1191,7 @@ SCREENS.connect=async function(a){
   });
   h+='</div>';
   var hApps=h;h='';
-  if(sub){h+='<div class="card"><div class="link" style="margin-top:0" onclick="copy(\''+jsq(sub)+'\')"><code>'+esc(sub)+'</code>'+IC.copy+'</div><div class="qr" id="qrw"><div id="qr"></div></div><div class="hint center">'+esc(T('conn_qr'))+'</div></div>';}
+  if(sub){h+='<div class="card"><button class="btn sec" onclick="copy(\''+jsq(sub)+'\')">'+IC.copy+esc(T('copy_link'))+'</button><div class="link" style="margin-top:8px;user-select:text;overflow-wrap:anywhere"><code>'+esc(sub)+'</code></div><div class="qr" id="qrw"><div id="qr"></div></div><div class="hint center">'+esc(T('conn_qr'))+'</div></div>';}
   h=DESK?dsplit(hT+h,hApps):hT+hApps+h;
   view(h);
   if(sub)drawQR(sub);

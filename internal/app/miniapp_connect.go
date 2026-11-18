@@ -876,21 +876,18 @@ func (a *App) MiniConnect(ctx context.Context, tgID int64) web.MiniConnectDTO {
 	ce := a.fetchPanelAppConfig(ctx, panel, u.ShortUUID, subURL)
 	if ce == nil {
 		base := appConfigBase(subURL)
-		if base == "" {
-			return dto
+		if base != "" {
+			ce = a.fetchAppConfig(ctx, base, subURL)
 		}
-		ce = a.fetchAppConfig(ctx, base, subURL)
-	}
-	if ce == nil {
-		return dto
 	}
 	lang := a.lang(tgID)
 	switch {
-	case ce.v2 != nil:
+	case ce != nil && ce.v2 != nil:
 		dto.Platforms = buildV2Platforms(ce.v2, subURL, u.Username, lang)
-	case ce.std != nil:
+	case ce != nil && ce.std != nil:
 		dto.Platforms = buildStdPlatforms(ce.std, subURL, lang)
 	}
+	dto.Platforms = a.addConnectCatalog(dto.Platforms, subURL, u.Username, lang)
 	// Keep the legacy mobile fields populated so the Telegram mini-app (iOS +
 	// Android only) works unchanged; the web cabinet uses dto.Platforms (all).
 	for _, p := range dto.Platforms {

@@ -66,6 +66,19 @@ function tgNonce(){
 function jsq(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'\\n').replace(/\r/g,'\\r');}
 // Копирование без Clipboard API (старые WebView).
 function fallbackCopy(t){try{var ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,String(t).length);var ok=document.execCommand('copy');document.body.removeChild(ta);return ok;}catch(e){return false;}}
+
+function subscriptionImportPage(deepLink, subscription){
+  var match=/^(happ|incy):\/\/add\//i.exec(deepLink||'');
+  if(!match||deepLink.slice(match[0].length)!==subscription||!/^https?:\/\//i.test(subscription))return '';
+  return new URL('import-subscription.html',window.location.href).href+'#'+match[1].toLowerCase()+'/'+encodeURIComponent(subscription);
+}
+function connectImportActions(app, subscription, addLabel, browserLabel){
+  if(!/^[a-z][a-z0-9+.-]*:/i.test(app.deeplink||'')||/^(javascript|vbscript|data|file):/i.test(app.deeplink))return '';
+  var html='<a class="btn" href="'+esc(app.deeplink)+'" rel="noreferrer">'+IC.plus+esc(addLabel)+'</a>';
+  var browser=tg&&tg.initData?subscriptionImportPage(app.deeplink,subscription):'';
+  if(browser)html+='<button class="btn sec" onclick="openL(\''+jsq(browser)+'\')">'+esc(browserLabel)+'</button>';
+  return html;
+}
 async function post(path,body){return api(path,{method:'POST',body:JSON.stringify(body||{})});}
 var SUBSCRIPTIONS={enabled:false,items:[]};
 async function loadSubscriptions(){

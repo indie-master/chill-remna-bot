@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex,nofollow">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>Добавление подписки</title>
+  <style>
+    :root{color-scheme:light dark;font:16px system-ui}main{max-width:32rem;margin:8vh auto;padding:1.25rem}
+    h1{font-size:1.5rem}p{line-height:1.5}a,button,input{box-sizing:border-box;font:inherit;min-height:44px;padding:.65rem .85rem;border-radius:.65rem}
+    a{display:block;background:#385be8;color:#fff;text-align:center;text-decoration:none;margin:1rem 0}button,input{width:100%;margin:.25rem 0}input{border:1px solid GrayText}
+  </style>
+  <script src="import-subscription.js" defer></script>
+</head>
+<body><main>
+  <h1 id="title">Добавление подписки</h1>
+  <p id="instructions" role="status">Откройте эту страницу по кнопке импорта из кабинета.</p>
+  <section id="actions" hidden>
+    <a id="launch" rel="noreferrer"></a>
+    <button type="button" id="copy">Скопировать ссылку</button>
+    <input id="subscription" aria-label="Ссылка подписки" readonly>
+  </section>
+</main></body>
+</html>

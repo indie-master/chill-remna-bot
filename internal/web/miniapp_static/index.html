@@ -1381,13 +1381,12 @@ function drawQR(text){
 function renderConnect(){
   var d=CONNECT||{};
   var h='<div class="stagger"><div class="card hero glow"><div class="top"><span class="status">'+IC.download+' Подключение</span>'+IC.globe+'</div>'+
-    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку» — она импортируется сама.</div>';
+    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку». Если Telegram не открыл приложение, попробуйте через браузер или скопируйте ссылку.</div>';
   if(d.sub_url)h+='<div id="qrwrap" style="display:flex;flex-direction:column;align-items:center;margin-top:16px"><div id="qrbox" class="qrbox"></div>'+
     '<div class="hint center" style="margin-top:8px">Наведите камеру другого устройства, чтобы перенести подписку</div></div>';
   h+='</div>';
-  // На компьютере ссылку часто вставляют в программу вручную — кнопка нужна и
-  // при списке приложений.
-  if(DESK&&d.sub_url&&connectList().length)h+='<button class="btn sec" style="margin-top:0" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку</button>';
+  if(d.sub_url)h+='<button class="btn sec" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку подписки</button>'+
+    '<details class="xblk"><summary>Показать ссылку</summary><div class="xtext" style="overflow-wrap:anywhere;user-select:text">'+esc(d.sub_url)+'</div></details>';
   var hl=h;h='';
   var ps=cnPlatforms();
   if(ps.length>1){
@@ -1399,16 +1398,15 @@ function renderConnect(){
   var grid=list.length>1;
   if(!list.length){
     h+='<div class="hint center" style="margin-top:16px">Список приложений недоступен. Скопируйте ссылку и добавьте её в приложение вручную.</div>';
-    if(d.sub_url)h+='<button class="btn sec" style="margin-top:10px" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку</button>';
   }
   if(grid)h+='<div class="cols">';
   list.forEach(function(ap){
     h+='<div class="appc'+(ap.featured?' feat':'')+'"><div class="apphead"><span class="appname">'+esc(ap.name)+(ap.featured?'<span class="fbadge">Рекомендуем</span>':'')+'</span></div>';
     if(ap.add_desc)h+='<div class="appdesc">'+esc(ap.add_desc)+'</div>';
-    if(ap.deeplink)h+='<button class="btn" onclick="openDeep(\''+jsq(ap.deeplink)+'\')">'+IC.plus+'Добавить подписку</button>';
     (ap.installs||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="openL(\''+jsq(b.url)+'\')">'+IC.download+esc(b.text||'Установить')+'</button>';
     });
+    h+=connectImportActions(ap,d.sub_url,'Добавить подписку','Импорт через браузер');
     (ap.copies||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="copy(\''+jsq(b.url)+'\')">'+IC.copy+esc(b.text||'Скопировать ссылку')+'</button>';
     });
