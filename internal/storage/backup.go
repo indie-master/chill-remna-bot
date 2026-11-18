@@ -53,6 +53,10 @@ const (
 // фиксированный (имена таблиц в запрос подставляются только отсюда), его
 // полноту сторожит тест: новая таблица без строки здесь валит сборку.
 var backupTables = []string{
+	"customer_subscriptions",
+	"subscription_selections",
+	"subscription_operations",
+	"subscription_callbacks",
 	"settings",
 	"backup_state",
 	"users",

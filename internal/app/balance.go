@@ -819,6 +819,9 @@ func (a *App) payBalance(ctx context.Context, tgID int64, s *sale, concurrent bo
 		return balanceResult{kind: balNoStore}
 	}
 	buyKey := strconv.FormatInt(tgID, 10) + "|" + s.planCode() + "|" + strconv.Itoa(months)
+	if s.SubscriptionID != "" {
+		buyKey += "|" + s.SubscriptionID
+	}
 	if concurrent {
 		// Ключ сделки ниже строится из состояния, ПРОЧИТАННОГО ДО списания, а
 		// оно сдвигается каждой выдачей: второй запрос, успевший прочитать его
@@ -834,7 +837,11 @@ func (a *App) payBalance(ctx context.Context, tgID int64, s *sale, concurrent bo
 		}
 	}
 	// Ключ сделки — до списания: по нему отсекается двойное нажатие.
-	extID := balanceExtID(tgID, s.planCode(), months, discr())
+	discriminator := discr()
+	if s.SubscriptionID != "" {
+		discriminator += "|sub:" + s.SubscriptionID
+	}
+	extID := balanceExtID(tgID, s.planCode(), months, discriminator)
 	if extID != "" {
 		if done, derr := a.store.PaymentByExtID(ctx, extID); derr == nil && done {
 			// Первое нажатие уже выдало подписку. Денег не трогаем вовсе —
@@ -847,6 +854,9 @@ func (a *App) payBalance(ctx context.Context, tgID int64, s *sale, concurrent bo
 	// Снимок — до списания: после DeductBalance отказ по любой причине означает
 	// возврат денег, и лишних причин отказа быть не должно.
 	snap := a.saleSnapshot(s)
+	if snap != nil {
+		snap.BalanceKopecks = kopecks
+	}
 	deducted, err := a.store.DeductBalance(ctx, tgID, kopecks)
 	if err != nil {
 		return balanceResult{kind: balDeductFailed, err: err}
@@ -863,6 +873,9 @@ func (a *App) payBalance(ctx context.Context, tgID int64, s *sale, concurrent bo
 		if errors.Is(err, storage.ErrDuplicateExtID) {
 			a.refundBalance(tgID, kopecks, nil)
 			return balanceResult{kind: balAlready}
+		}
+		if errors.Is(err, storage.ErrSubscriptionUncertain) {
+			return balanceResult{kind: balFailed, err: err}
 		}
 		a.refundBalance(tgID, kopecks, err)
 		return balanceResult{kind: balFailed, err: err}

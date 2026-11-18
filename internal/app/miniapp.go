@@ -46,6 +46,7 @@ func (a *App) MiniMe(ctx context.Context, tgID int64) web.MiniMeDTO {
 // MiniMenu mirrors navRow: it reports exactly which actions the chat bot would
 // offer this user, plus the enabled payment methods and contact links.
 func (a *App) MiniMenu(ctx context.Context, tgID int64, web_ bool) web.MiniMenuDTO {
+	tributeSupported := a.tributeSubscriptionSupported(ctx, tgID)
 	dto := web.MiniMenuDTO{
 		HasSub:         a.userHasSub(ctx, tgID),
 		TrialAvailable: a.trialAvailable(ctx, tgID),
@@ -96,7 +97,7 @@ func (a *App) MiniMenu(ctx context.Context, tgID int64, web_ bool) web.MiniMenuD
 		if c.Heleket.Enabled {
 			dto.PayMethods = append(dto.PayMethods, model.PayMethodHeleket)
 		}
-		if c.Tribute.Enabled {
+		if c.Tribute.Enabled && tributeSupported {
 			dto.PayMethods = append(dto.PayMethods, model.PayMethodTribute)
 		}
 		if c.P2P.Enabled {
@@ -346,6 +347,10 @@ func (a *App) MiniTrial(ctx context.Context, tgID int64) web.MiniActionDTO {
 // тариф выключен или закрыт этому покупателю. Правила зеркалят чат: витрина
 // такого не предлагает, значит и счёт по прямому запросу не создаётся.
 func (a *App) miniSale(ctx context.Context, tgID int64, code string, months int) *sale {
+	target, err := a.saleSubscriptionID(ctx, tgID)
+	if err != nil {
+		return nil
+	}
 	if code == "" || code == model.PlanCodeBase {
 		// Пустой код — старый фронт из кэша: он знает только «Базовый».
 		// Тот же признак, что у витрины: срок без базовой цены снят с продажи.
@@ -357,7 +362,9 @@ func (a *App) miniSale(ctx context.Context, tgID int64, code string, months int)
 		if !a.baseSaleAllowed(ctx, tgID) && !a.baseLinkSale(ctx, tgID) {
 			return nil
 		}
-		return baseSale(months)
+		s := baseSale(months)
+		s.SubscriptionID = target
+		return s
 	}
 	p, err := a.planByCode(ctx, code)
 	if err != nil || p == nil || !p.Enabled {
@@ -376,7 +383,7 @@ func (a *App) miniSale(ctx context.Context, tgID int64, code string, months int)
 	if d == nil || d.Base == "" {
 		return nil
 	}
-	return &sale{Plan: p, D: d, Months: months}
+	return &sale{Plan: p, D: d, Months: months, SubscriptionID: target}
 }
 
 // SessionVersion — текущее поколение пропусков кабинета и мини-аппа.

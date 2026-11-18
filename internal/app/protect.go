@@ -90,6 +90,8 @@ func flowOf(ctx context.Context) string {
 func clientData(data string) bool {
 	key, val, _ := strings.Cut(data, ":")
 	switch key {
+	case "subpick":
+		return true
 	case cbBuy, cbPlanBuy, cbPlanView, cbPlanBack, cbMethod, cbTop, cbP2P, cbYKCheck, cbAutoPay,
 		cbCBCheck, cbPLCheck, cbYMCheck, cbHLCheck, cbDevices, cbTerms:
 		return true

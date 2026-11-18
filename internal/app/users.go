@@ -1042,12 +1042,25 @@ func (a *App) onPayments(ctx context.Context, chatID int64, val string) {
 }
 
 func (a *App) showMySubs(ctx context.Context, chatID int64) {
+	label := ""
+	if a.multiSubscriptions() {
+		selected, err := a.selectedSubscription(ctx, chatID)
+		if err != nil || selected == nil {
+			a.showSubscriptions(ctx, chatID)
+			return
+		}
+		ctx = remnawave.WithSubscriptionTarget(ctx, chatID, selected.ID)
+		label = subscriptionLabel(selected)
+	}
 	// Подписка, устройства и доп-подписка — про одного человека: в панели он
 	// ищется один раз на показ экрана.
 	ctx = remnawave.WithLookupMemo(ctx)
 	lang := a.lang(chatID)
 	panel := a.panelClient()
 	home := []models.InlineKeyboardButton{btn(i18n.T(lang, "btn.home"), "menu:home")}
+	if a.multiSubscriptions() {
+		home = append([]models.InlineKeyboardButton{btn("Мои подписки", "subpick:list")}, home...)
+	}
 	var snap remnawave.SubSnapshot
 	ok := false
 	var perr error
@@ -1116,7 +1129,7 @@ func (a *App) showMySubs(ctx context.Context, chatID int64) {
 		rows = append(rows, row)
 	}
 	rows = append(rows, home)
-	text := a.subActiveText(ctx, chatID, url, expireAt) + a.planLine(ctx, lang, chatID) + trafficLine(lang, snap) + devLine + a.addSubLine(ctx, chatID)
+	text := label + a.subActiveText(ctx, chatID, url, expireAt) + a.planLine(ctx, lang, chatID) + trafficLine(lang, snap) + devLine + a.addSubLine(ctx, chatID)
 	a.sendKBSection(ctx, chatID, assets.SectionMySubscription, text, rows)
 }
 

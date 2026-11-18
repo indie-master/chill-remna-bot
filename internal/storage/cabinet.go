@@ -168,6 +168,8 @@ func (b *base) AccountFootprint(ctx context.Context, tgID int64) (AccountFootpri
 		return fp, nil
 	}
 	for _, q := range []string{
+		"SELECT COUNT(*) FROM customer_subscriptions WHERE telegram_id = ",
+		"SELECT COUNT(*) FROM subscription_operations WHERE telegram_id = ",
 		"SELECT COUNT(*) FROM payments WHERE telegram_id = ",
 		"SELECT COUNT(*) FROM p2p_requests WHERE telegram_id = ",
 		"SELECT COUNT(*) FROM promo_redemptions WHERE telegram_id = ",
@@ -190,6 +192,9 @@ func (b *base) AccountFootprint(ctx context.Context, tgID int64) (AccountFootpri
 // Список ровно один на весь перенос: разъехавшись, он оставил бы часть истории
 // на исчезнувшем идентификаторе.
 var accountTables = []struct{ table, col string }{
+	{"customer_subscriptions", "telegram_id"},
+	{"subscription_operations", "telegram_id"},
+	{"subscription_callbacks", "telegram_id"},
 	{"users", "telegram_id"},
 	{"web_users", "tg_id"},
 	{"payments", "telegram_id"},
@@ -222,6 +227,13 @@ func (b *base) MoveAccount(ctx context.Context, from, to int64) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var occupied int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM customer_subscriptions WHERE telegram_id = "+b.ph(1), to).Scan(&occupied); err != nil {
+		return err
+	}
+	if occupied != 0 {
+		return ErrSubscriptionOwner
+	}
 
 	// Пустую строку от одного /start уносим с дороги: она ничего не хранит, а
 	// первичный ключ users занимает.

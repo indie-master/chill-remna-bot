@@ -92,10 +92,11 @@ type messenger interface {
 }
 
 type App struct {
-	cfg     *config.Config
-	crypter *crypto.Crypter
-	log     *slog.Logger
-	b       *bot.Bot
+	subscriptionReviews map[string]subscriptionReview
+	cfg                 *config.Config
+	crypter             *crypto.Crypter
+	log                 *slog.Logger
+	b                   *bot.Bot
 
 	ctl *hostctl.Controller
 	msg messenger
@@ -411,8 +412,9 @@ func (a *App) spawn(f func()) {
 }
 
 type subCacheEntry struct {
-	has      bool
-	expireAt time.Time
+	SubscriptionID string
+	has            bool
+	expireAt       time.Time
 }
 
 func New(cfg *config.Config, crypter *crypto.Crypter, log *slog.Logger) *App {
@@ -546,6 +548,7 @@ func (a *App) newPanel(pc model.PanelConfig) *remnawave.Client {
 	c := remnawave.New(a.panelWithEnv(pc))
 	c.SetEmailResolver(a.panelEmailFor)
 	c.SetAccountEmail(a.accountEmailFor)
+	c.SetSubscriptionResolver(a.resolveSubscriptionRef)
 	return c
 }
 
@@ -1669,6 +1672,7 @@ func (a *App) sendKB(ctx context.Context, chatID int64, text string, rows [][]mo
 
 // sendKBText — экран обычным текстовым сообщением.
 func (a *App) sendKBText(ctx context.Context, chatID int64, text string, rows [][]models.InlineKeyboardButton) {
+	rows = a.subscriptionButtons(ctx, chatID, rows)
 	t := a.applyPremium(text)
 	prot := a.screenProtect(ctx, chatID, copyableText(t))
 	a.setScreenSection(chatID, "")
@@ -1913,6 +1917,7 @@ func (a *App) noteBannerOK(photo models.InputFile) {
 }
 
 func (a *App) sendKBSection(ctx context.Context, chatID int64, section, caption string, rows [][]models.InlineKeyboardButton) {
+	rows = a.subscriptionButtons(ctx, chatID, rows)
 	// Предел подписи Telegram (1024) считается в единицах UTF-16 видимого
 	// текста: эмодзи — по две. Длинная подпись уходит обычным сообщением.
 	if !assets.Has(section) || len([]rune(caption)) > 1000 || len(utf16.Encode([]rune(stripHTMLTags(caption)))) > 1000 {

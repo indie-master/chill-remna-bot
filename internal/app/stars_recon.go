@@ -118,7 +118,7 @@ func (a *App) reconcileStarTx(ctx context.Context, tx *models.StarTransaction) {
 		}
 		return
 	}
-	snap, ok := a.starsSnapshotForAmount(ctx, payer, months, tx.Amount)
+	snap, ok := a.starsSnapshotForPayload(ctx, payer, u.InvoicePayload, tx.Amount, false)
 	if !ok {
 		// Условия счёта не нашлись (снимок мог протухнуть за 30 дней) — это
 		// разбор для человека, а не для автоматики.

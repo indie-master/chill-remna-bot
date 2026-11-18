@@ -23,6 +23,7 @@ services:
       DATA_DIR: /data
       DB_KIND: sqlite
       LOG_LEVEL: info
+      MULTI_SUBSCRIPTIONS_ENABLED: ${MULTI_SUBSCRIPTIONS_ENABLED:-false}
     ports:
       - "127.0.0.1:${STORE_HTTP_PORT:-8788}:8080"
     volumes:

@@ -397,11 +397,12 @@ func NormalizeEmail(email string) string {
 // в чате, а снятие выбора после покупки — стирать условия ещё не оплаченного
 // счёта.
 type PurchaseIntent struct {
-	TelegramID int64
-	PlanCode   string
-	Months     int
-	Days       int
-	CreatedAt  string
+	SubscriptionID string
+	TelegramID     int64
+	PlanCode       string
+	Months         int
+	Days           int
+	CreatedAt      string
 	// ShownPrice — цена, напечатанная на кнопках экрана способов оплаты.
 	// Списание сверяется с ней: между показом и нажатием админ мог поменять
 	// прайс, а молча списать другую сумму нельзя. Пусто у намерений, снятых до

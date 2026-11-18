@@ -202,7 +202,7 @@ func (a *App) userSnapshot(ctx context.Context, tgID int64) *model.PlanSnapshot 
 	if st == nil {
 		return nil
 	}
-	u, err := st.GetUser(ctx, tgID)
+	u, err := a.subscriptionUser(ctx, tgID)
 	if err != nil || u == nil {
 		return nil
 	}

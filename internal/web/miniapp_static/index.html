@@ -538,11 +538,13 @@ async function authenticate(){
 async function api(path,opts={}){
   const h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
   if(TOKEN)h['Authorization']='Bearer '+TOKEN;
+  subscriptionHeaders(path,h);
   const r=await fetch(path,Object.assign({},opts,{headers:h}));
   if(r.status===401&&!opts.noRetry&&!WEB&&tg&&tg.initData){
     await authenticate();
     const h2=Object.assign({'Content-Type':'application/json'},opts.headers||{});
     h2['Authorization']='Bearer '+TOKEN;
+    subscriptionHeaders(path,h2);
     const r2=await fetch(path,Object.assign({},opts,{headers:h2}));
     if(!r2.ok)throw mkErr(r2.status,null);
     return r2.json();
@@ -663,6 +665,7 @@ function render(me,menu,sub,plans){
   if(WEB){var who=STATE.me_email||STATE.me_name||'Аккаунт';var ini=(String(who).trim().charAt(0)||'?').toUpperCase();ub='<div class="ublock"><div class="uava" data-ava>'+avaHTML(ini)+'</div><div class="uinfo"><div class="uname">'+esc(who)+'</div><div class="usub">'+(STATE.me_email?'email-аккаунт':'Telegram')+'</div></div><button class="btn sec ulogout" onclick="cabLogout()">Выйти</button></div>';}
   let h='<div class="stagger">';
   h+=verifyBanner();
+  h+=subscriptionPicker();
   if(sub.active){
     var pass=passHTML(sub);
     h+='<div class="acctgrp">'+ub+pass+'</div>';
@@ -710,6 +713,7 @@ function render(me,menu,sub,plans){
 // ссылка подписки и автопродление, ниже тарифы карточками.
 function renderHomeDesk(menu,sub){
   var h='<div class="stagger">'+verifyBanner();
+  h+=subscriptionPicker();
   if(sub.active){
     var right='';
     if(sub.sub_url)right+='<div class="card"><div class="lab2">Ссылка подписки</div><div class="lrow"><div class="mono">'+esc(sub.sub_url)+'</div>'+
@@ -1720,6 +1724,7 @@ async function boot(){
     else if(!STATE.startDone){STATE.startDone=true;try{start=(tg.initDataUnsafe&&tg.initDataUnsafe.start_param)||'';}catch(e){}}
     PAGE='home';skMain();renderSide();
     if(!WEB)await authenticate();
+    await loadSubscriptions();
     const [me,menu,sub,plans]=await Promise.all([
       api('/api/miniapp/me').then(function(m){mountChat(m.chat_src);return m;}),api('/api/miniapp/menu'),
       api('/api/miniapp/subscription'),api('/api/miniapp/plans')]);

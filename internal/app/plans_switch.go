@@ -230,7 +230,7 @@ func (a *App) switchCreditDays(ctx context.Context, tgID int64, newSnap *model.P
 	if st == nil {
 		return 0
 	}
-	u, err := st.GetUser(ctx, tgID)
+	u, err := a.subscriptionUser(ctx, tgID)
 	if err != nil || u == nil || u.Snapshot == nil {
 		return 0
 	}
@@ -255,7 +255,7 @@ func (a *App) switchingFrom(ctx context.Context, tgID int64, toCode string) stri
 	if st == nil {
 		return ""
 	}
-	u, err := st.GetUser(ctx, tgID)
+	u, err := a.subscriptionUser(ctx, tgID)
 	if err != nil || u == nil || u.Snapshot == nil {
 		return ""
 	}

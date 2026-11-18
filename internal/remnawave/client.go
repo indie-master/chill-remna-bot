@@ -63,7 +63,8 @@ type Client struct {
 	// accountEmail — подтверждённая почта аккаунта для поля email учётки, в том
 	// числе после привязки Telegram ("" — писать нечего). Отдельно от emailFor:
 	// искать по почте можно только аккаунты без Telegram, а вписывать — всем.
-	accountEmail func(ctx context.Context, telegramID int64) string
+	accountEmail         func(ctx context.Context, telegramID int64) string
+	subscriptionResolver func(context.Context, int64, string) (string, error)
 }
 
 // SetEmailResolver подключает поиск учётки по почте для аккаунтов кабинета.
@@ -541,7 +542,8 @@ type panelUser struct {
 
 	// byEmail — учётка найдена по подтверждённой почте аккаунта кабинета
 	// (см. findByAccountEmail): владение тогда доказано самим поиском.
-	byEmail bool
+	byEmail    bool
+	boundOwner int64
 
 	TrafficLimitStrategy string `json:"trafficLimitStrategy"`
 	// HwidDeviceLimit: null — действует лимит по умолчанию панели, 0 —
@@ -691,6 +693,9 @@ func ownedByBot(u *panelUser, telegramID int64) bool {
 		return false
 	}
 	if u.byEmail {
+		return true
+	}
+	if u.boundOwner == telegramID {
 		return true
 	}
 	return u.TelegramID == telegramID || u.Username == botUsername(telegramID)
@@ -1151,6 +1156,9 @@ func (c *Client) grant(ctx context.Context, telegramID int64, limits UserLimits,
 	existing, err := c.findByTelegram(ctx, telegramID)
 	if err != nil {
 		return "", "", err
+	}
+	if owner, _ := ctx.Value(newAccountOnlyKey{}).(int64); owner == telegramID && existing != nil {
+		return "", "", ErrNewAccountExists
 	}
 	until := expire(existing)
 	email := c.emailToWrite(ctx, telegramID)
@@ -1909,6 +1917,19 @@ func (c *Client) findByTelegramOnce(ctx context.Context, telegramID int64) (*pan
 // findByTelegram resolves a user by telegram id in whichever dialect the panel
 // speaks (see panelGen).
 func (c *Client) findByTelegram(ctx context.Context, telegramID int64) (*panelUser, error) {
+	requested := subscriptionTargetFor(ctx, telegramID)
+	if c.subscriptionResolver != nil {
+		ref, err := c.subscriptionResolver(ctx, telegramID, requested)
+		if err != nil {
+			return nil, err
+		}
+		if ref != "" {
+			return c.findBoundAccount(ctx, telegramID, ref)
+		}
+	}
+	if requested != "" {
+		return nil, ErrBoundAccountUnavailable
+	}
 	if telegramID < 0 {
 		// Синтетическая личность аккаунта веб-кабинета, заведённого по почте.
 		// Фильтр панели принимает только неотрицательный telegramId
@@ -2200,6 +2221,15 @@ func (c *Client) LinkTelegramID(ctx context.Context, ref UserRef, telegramID int
 }
 
 func (c *Client) upsertCall(ctx context.Context, method, path string, body any) (string, string, error) {
+	if observe, ok := ctx.Value(expiryObserverKey{}).(func(string) error); ok && path == "/api/users" {
+		if values, ok := body.(map[string]any); ok {
+			if expiry, _ := values["expireAt"].(string); expiry != "" {
+				if err := observe(expiry); err != nil {
+					return "", "", err
+				}
+			}
+		}
+	}
 	resp, err := c.do(ctx, method, path, body)
 	if err != nil {
 		return "", "", fmt.Errorf("нет связи с панелью: %w", err)

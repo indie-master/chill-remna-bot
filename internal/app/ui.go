@@ -14,6 +14,7 @@ import (
 	"remnabot/internal/assets"
 	"remnabot/internal/i18n"
 	"remnabot/internal/model"
+	"remnabot/internal/remnawave"
 )
 
 //go:embed banner_default.jpg
@@ -155,10 +156,11 @@ func plainName(s string) string {
 const subCacheTTL = 30
 
 func (a *App) userHasSub(ctx context.Context, chatID int64) bool {
+	target := remnawave.SubscriptionTargetID(ctx, chatID)
 
 	a.subMu.Lock()
 	if a.subCache != nil {
-		if e, ok := a.subCache[chatID]; ok && time.Now().Before(e.expireAt) {
+		if e, ok := a.subCache[chatID]; ok && e.SubscriptionID == target && time.Now().Before(e.expireAt) {
 			a.subMu.Unlock()
 			return e.has
 		}
@@ -178,7 +180,7 @@ func (a *App) userHasSub(ctx context.Context, chatID int64) bool {
 		a.subMu.Lock()
 		last := false
 		if a.subCache != nil {
-			if e, ok := a.subCache[chatID]; ok {
+			if e, ok := a.subCache[chatID]; ok && e.SubscriptionID == target {
 				last = e.has
 			}
 		}
@@ -190,7 +192,7 @@ func (a *App) userHasSub(ctx context.Context, chatID int64) bool {
 	if a.subCache == nil {
 		a.subCache = map[int64]subCacheEntry{}
 	}
-	a.subCache[chatID] = subCacheEntry{has: has, expireAt: time.Now().Add(subCacheTTL * time.Second)}
+	a.subCache[chatID] = subCacheEntry{has: has, SubscriptionID: target, expireAt: time.Now().Add(subCacheTTL * time.Second)}
 	a.subMu.Unlock()
 	return has
 }
@@ -341,11 +343,15 @@ func paginationRow(prefix string, page, pages int, prevLabel, nextLabel string) 
 }
 
 func (a *App) adminMenuRows(lang string) [][]models.InlineKeyboardButton {
-	return [][]models.InlineKeyboardButton{
+	rows := [][]models.InlineKeyboardButton{
 		{btn(i18n.T(lang, "menu.cat_pay"), "menu:pay"), btn(i18n.T(lang, "menu.cat_marketing"), "menu:marketing")},
 		{btn(i18n.T(lang, "menu.cat_iface"), "menu:iface"), btn(i18n.T(lang, "btn.users"), "menu:users")},
 		{btn(i18n.T(lang, "menu.cat_system"), "menu:system"), btn(i18n.T(lang, "btn.storefront"), "menu:buy")},
 	}
+	if a.multiSubscriptions() {
+		rows = append(rows, []models.InlineKeyboardButton{btn("Сверка выдачи подписок", "sop:list")})
+	}
+	return rows
 }
 
 func (a *App) showIface(ctx context.Context, chatID int64) {
@@ -814,6 +820,10 @@ func (a *App) onMenu(ctx context.Context, chatID int64, val string, isAdmin bool
 			a.showAnalytics(ctx, chatID)
 		}
 	case "mysubs":
+		if a.multiSubscriptions() {
+			a.showSubscriptions(ctx, chatID)
+			return
+		}
 		a.showMySubs(ctx, chatID)
 	case "autopay":
 		a.showAutoPay(ctx, chatID)

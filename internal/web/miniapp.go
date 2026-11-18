@@ -622,6 +622,19 @@ func (s *Server) miniGuard(w http.ResponseWriter, r *http.Request) (id int64, we
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return 0, false, false
 	}
+	if target := r.Header.Get("X-Subscription-ID"); target != "" {
+		provider, available := s.mini.(subscriptionScopeProvider)
+		if !available || len(target) > 128 {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "подписка недоступна"})
+			return 0, false, false
+		}
+		ctx, err := provider.MiniSubscriptionScope(r.Context(), id, target)
+		if err != nil {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "подписка недоступна"})
+			return 0, false, false
+		}
+		*r = *r.WithContext(ctx)
+	}
 	// Признак поверхности из пропуска сверяется с тем, включена ли она.
 	// Раньше страж пускал, если включена ЛЮБАЯ из двух: админ выключал
 	// кабинет, страница и вход исчезали, а выданные пропуска ещё неделю читали

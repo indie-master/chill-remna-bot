@@ -550,6 +550,7 @@ async function api(path,opts){
   opts=opts||{};
   var h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
   if(TOKEN)h.Authorization='Bearer '+TOKEN;
+  subscriptionHeaders(path,h);
   var r=await fetch(path,Object.assign({},opts,{headers:h}));
   if(r.status===401&&!opts.noRetry&&!WEB&&tg&&tg.initData){
     await authenticate();
@@ -739,6 +740,7 @@ SCREENS.home=function(){
   var m=STATE.menu||{};
   if(m.legal_accept&&m.legal_gate_start&&legalDocs().length){legalGate();return;}
   var h=verifyBanner();
+  h+=subscriptionPicker();
   if(DESK)h+=homeDesk();
   else if(WEB)h+='<div class="cols"><div>'+subCard()+'</div><div>'+homeList()+'</div></div>';
   else h+=subCard()+homeList();
@@ -1382,6 +1384,7 @@ function dropQuery(){try{history.replaceState({},'',location.pathname);}catch(e)
 
 /* ---------- загрузка ---------- */
 async function refresh(){
+  await loadSubscriptions();
   var r=await Promise.all([api('/api/miniapp/me').then(function(m){mountChat(m.chat_src);return m;}),api('/api/miniapp/menu'),api('/api/miniapp/subscription'),api('/api/miniapp/plans')]);
   var me=r[0],menu=r[1],sub=r[2],plans=r[3];
   var extra=(STATE.plans||[]).filter(function(p){return p.link&&!(plans.plans||[]).some(function(q){return q.code===p.code;});});

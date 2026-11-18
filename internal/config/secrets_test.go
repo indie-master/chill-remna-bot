@@ -29,6 +29,28 @@ func TestFileSecretsLoad(t *testing.T) {
 	}
 }
 
+func TestMultiSubscriptionsFlagIsExplicit(t *testing.T) {
+	t.Setenv("BOT_TOKEN", "synthetic")
+	t.Setenv("BOT_TOKEN_FILE", "")
+	t.Setenv("ADMIN_TELEGRAM_ID", "12345")
+	for _, tc := range []struct {
+		raw            string
+		enabled, valid bool
+	}{{"", false, true}, {"false", false, true}, {"true", true, true}, {"maybe", false, false}} {
+		t.Setenv("MULTI_SUBSCRIPTIONS_ENABLED", tc.raw)
+		cfg, err := Load()
+		if !tc.valid {
+			if err == nil {
+				t.Fatal("invalid mode accepted")
+			}
+			continue
+		}
+		if err != nil || cfg.MultiSubscriptions != tc.enabled {
+			t.Fatalf("flag %q: %+v %v", tc.raw, cfg, err)
+		}
+	}
+}
+
 func TestSecretEnvValidation(t *testing.T) {
 	for _, tc := range []struct {
 		name, raw string

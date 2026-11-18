@@ -48,7 +48,12 @@ func (a *App) startStars(ctx context.Context, chatID int64) {
 	a.rememberStarsSnapshot(ctx, chatID, months, a.saleSnapshot(s))
 	title := i18n.T(lang, "stars.invoice_title", months)
 	desc := i18n.T(lang, "stars.invoice_desc", months)
-	a.msg.SendInvoice(ctx, chatID, title, desc, "stars:"+strconv.Itoa(months), "XTR", amount)
+	payload, err := a.subscriptionStarsPayload(ctx, chatID, s, amount, "stars:"+strconv.Itoa(months))
+	if err != nil {
+		a.sendHome(ctx, chatID, a.clientErr(ctx, chatID, "счёт Stars", err))
+		return
+	}
+	a.msg.SendInvoice(ctx, chatID, title, desc, payload, "XTR", amount)
 	a.payLog(ctx, model.PayMethodStars, "", chatID, "invoice_sent", "purchase plan=%s months=%d stars=%d", s.planCode(), months, amount)
 }
 
@@ -75,6 +80,17 @@ func (a *App) handlePreCheckout(ctx context.Context, q *models.PreCheckoutQuery)
 	var fromID int64
 	if q.From != nil {
 		fromID = q.From.ID
+	}
+	if a.multiSubscriptions() || len(strings.Split(q.InvoicePayload, ":")) > 3 {
+		_, ok := a.starsSnapshotForPayload(ctx, fromID, q.InvoicePayload, q.TotalAmount, true)
+		ok = ok && q.Currency == "XTR" && a.starsConfig().Enabled
+		a.msg.AnswerPreCheckout(ctx, q.ID, ok, func() string {
+			if ok {
+				return ""
+			}
+			return "Счёт недоступен. Выберите подписку и создайте новый счёт"
+		}())
+		return
 	}
 	// Сумма сверяется с текущей ценой срока — либо в сетке «Базового», либо в
 	// тарифе, чей счёт выставлен этому человеку (payload у Stars менять нельзя,
@@ -151,7 +167,7 @@ func (a *App) handleSuccessfulPayment(ctx context.Context, m *models.Message) {
 		a.starsOfferRefund(ctx, chatID, sp.TelegramPaymentChargeID, sp.TotalAmount)
 		return
 	}
-	snap, ok := a.starsSnapshotForAmount(ctx, chatID, months, sp.TotalAmount)
+	snap, ok := a.starsSnapshotForPayload(ctx, chatID, sp.InvoicePayload, sp.TotalAmount, false)
 	if !ok {
 		// Сумма не совпала ни с одним известным счётом на этот срок. Выдавать
 		// «что-нибудь» нельзя: применённые условия обязаны стоить ровно
@@ -336,6 +352,10 @@ func (a *App) starsInvoiceLink(ctx context.Context, chatID int64, s *sale) (stri
 	// В payload ссылки едет её адресат: ссылку можно переслать кому угодно, и
 	// без адресата чужого плательщика не отличить от своего (см. предпроверку).
 	payload := "stars:" + strconv.Itoa(months) + ":" + strconv.FormatInt(chatID, 10)
+	payload, err := a.subscriptionStarsPayload(ctx, chatID, s, amount, payload)
+	if err != nil {
+		return "", err
+	}
 	link, err := a.msg.CreateInvoiceLink(ctx, title, desc, payload, "XTR", amount)
 	if err != nil {
 		a.payLog(ctx, model.PayMethodStars, "", chatID, "invoice_error", "purchase plan=%s months=%d stars=%d: %v", s.planCode(), months, amount, err)

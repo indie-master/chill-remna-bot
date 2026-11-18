@@ -33,6 +33,10 @@ func (a *App) storeRef() storage.Storage {
 }
 
 func (a *App) syncPanelAccount(ctx context.Context, chatID int64) bool {
+	if a.multiSubscriptions() && chatID > 0 {
+		subs, err := a.discoverSubscriptions(ctx, chatID)
+		return err == nil && len(subs) > 0
+	}
 	panel := a.panelClient()
 	if panel == nil || a.store == nil {
 		return false
