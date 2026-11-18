@@ -8,9 +8,24 @@ volume=customer-store-update-ci-data
 revision=$(printf '%040d' 1)
 revision2=$(printf '%040d' 2)
 image="customer-store-local:$revision"
-trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+cleanup() {
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  if [[ -n "${http_pid:-}" ]]; then kill "$http_pid" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
 bash -n "$source_dir/deploy/update-existing.sh"
 mkdir "$fixture/seed"
+mkdir "$fixture/www"
+printf 'ok\n' > "$fixture/www/healthz"
+# The fixture never starts the real Telegram receiver. A loopback HTTP stub
+# verifies readiness while the test container shares this isolated CI host.
+python3 -m http.server 9080 --bind 127.0.0.1 --directory "$fixture/www" > "$fixture/http.log" 2>&1 &
+http_pid=$!
+for ((i=0;i<20;i++)); do
+  if curl -fsS http://127.0.0.1:9080/healthz >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+curl -fsS http://127.0.0.1:9080/healthz >/dev/null
 python3 - "$source_dir" "$fixture/seed" <<'PY'
 import pathlib, sqlite3, sys
 root, out = map(pathlib.Path, sys.argv[1:])
@@ -39,8 +54,9 @@ services:
     image: $image
     pull_policy: never
     container_name: $container
+    network_mode: host
     entrypoint: [/bin/sh, -ec]
-    command: ['mkdir -p /tmp/www; echo ok > /tmp/www/healthz; echo after > /data/after-switch; exec httpd -f -p 9080 -h /tmp/www']
+    command: ['echo after > /data/after-switch; exec sleep 3600']
     environment:
       BOT_TOKEN: synthetic-only
       ADMIN_TELEGRAM_ID: "12345"
