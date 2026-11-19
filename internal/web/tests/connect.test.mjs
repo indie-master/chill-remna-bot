@@ -5,37 +5,80 @@ import vm from 'node:vm';
 
 const asset = name => readFileSync(new URL('../miniapp_static/' + name, import.meta.url), 'utf8');
 const subscription = 'https://subscriptions.example.invalid/selected?mode=full&client=test#name';
+const esc = value => String(value).replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 
-test('Telegram import uses a same-origin browser handoff with a fragment', () => {
-  const page = {URL, window:{location:{href:'https://shop.example.invalid/miniapp/'}}, tg:{initData:'synthetic'},
-    IC:{plus:'+'}, esc:s=>String(s).replaceAll('&','&amp;').replaceAll('"','&quot;')};
-  vm.createContext(page);
+function connectPage(design, api) {
+  const views = [];
+  const arg = {};
+  const page = vm.createContext({
+    AbortController, setTimeout, clearTimeout, api, esc, IC:{plus:'+',copy:'copy',download:'download',globe:'OS'},
+    view:html=>views.push(html), haptic(){}, boot(){}, WEB:false, DESK:false, tg:{platform:'ios'},
+    STATE:{lang:'ru'}, PAGE:'home', CUR:{name:'connect',arg}, SCREENS:{},
+    document:{getElementById(){return null;}}, deskSplit:(first,second)=>first+second,
+    T:key=>key, backBtn:()=>'<button>Назад</button>', detectOS:()=>'ios', rerender(){}, drawQR(){},
+  });
   vm.runInContext(asset('shared.js'),page);
-  const link = 'happ://add/' + subscription;
-  const target = page.subscriptionImportPage(link, subscription);
-  assert.equal(target, 'https://shop.example.invalid/miniapp/import-subscription.html#happ/' + encodeURIComponent(subscription));
-  assert.equal(page.subscriptionImportPage(link,'https://subscriptions.example.invalid/wrong'),'');
-  assert.equal(page.connectImportActions({deeplink:'javascript:alert(1)'},subscription,'Add','Browser'),'');
-  const actions = page.connectImportActions({deeplink:link},subscription,'Add','Browser');
-  assert.match(actions, /<a[^>]+href="happ:\/\/add\/https:\/\//);
-  assert.match(actions, /import-subscription\.html#happ\//);
-  page.tg = null;
-  assert.doesNotMatch(page.connectImportActions({deeplink:link},subscription,'Add','Browser'),/import-subscription/);
+  const html = asset(design==='classic'?'index.html':'minimal.html');
+  const start = design==='classic'?'var CONNECT=null':'function cnPlatforms(c)';
+  const end = design==='classic'?'/* ---- account:':'function cnPlat(k)';
+  assert.ok(html.indexOf(start)>=0 && html.indexOf(end)>html.indexOf(start));
+  vm.runInContext(html.slice(html.indexOf(start),html.indexOf(end)),page);
+  return {page,views,open:()=>design==='classic'?page.openConnect():page.SCREENS.connect(arg)};
+}
+
+test('Happ and INCY use native links and reveal a manual copy option without opening a browser', () => {
+  const {page} = connectPage('classic');
+  for(const scheme of ['happ','incy']) {
+    const link = scheme+'://add/'+subscription;
+    const actions = page.connectImportActions({deeplink:link},subscription,'Add','Browser');
+    assert.ok(actions.includes('href="'+esc(link)+'"'));
+    assert.match(actions, /rel="noreferrer"[^>]+showImportHelp\(this\)/);
+    assert.match(actions, /role="status" hidden>/);
+    assert.match(actions, /onclick="copy\(/);
+    assert.doesNotMatch(actions, /import-subscription|window\.open|openLink|Browser/);
+  }
+  for(const invalid of ['https://example.invalid', 'javascript://alert(1)', 'vbscript://test', 'file:///data']) {
+    assert.equal(page.connectImportActions({deeplink:invalid},subscription,'Add'),'');
+  }
+  assert.equal(page.connectImportActions({deeplink:'happ://add/'+subscription},'','Add'),'');
+  const anchor = {nextElementSibling:{hidden:true}};
+  page.showImportHelp(anchor);
+  assert.equal(anchor.nextElementSibling.hidden,false);
 });
 
-test('import page validates schemes, then opens precisely the selected subscription', () => {
-  const elements = Object.fromEntries(['actions','launch','copy','subscription','title','instructions'].map(id=>[id,{addEventListener(){}}]));
-  let historyPath;
-  const page = {URL, window:{location:{hash:'#incy/'+encodeURIComponent(subscription),pathname:'/cabinet/import-subscription.html'}},
-    history:{replaceState(_state,_title,path){historyPath = path;}}, navigator:{language:'ru'},
-    document:{documentElement:{},getElementById:id=>elements[id]}};
-  vm.createContext(page);
-  vm.runInContext(asset('import-subscription.js'),page);
-  assert.equal(historyPath,'/cabinet/import-subscription.html');
-  assert.equal(elements.launch.href,'incy://add/'+subscription);
-  assert.equal(elements.subscription.value,subscription);
-  assert.equal(elements.actions.hidden,false);
-  for(const value of ['#bad/https%3A%2F%2Fexample.invalid','#happ/javascript%3Aalert(1)','#incy/http%3A%2F%2Fname%3Apassword%40example.invalid','#incy/%ZZ']) {
-    assert.equal(page.readSubscriptionImport(value),null);
-  }
-});
+for(const design of ['classic','minimal']) {
+  test(design+' stays on connect after failure and retries with the selected subscription',async()=>{
+    let attempts=0;
+    const {open,views} = connectPage(design,async(path,{signal})=>{
+      assert.equal(path,'/api/miniapp/connect');
+      assert.ok(signal instanceof AbortSignal);
+      attempts++;
+      if(attempts===1)throw Object.assign(new Error(subscription),{status:502});
+      if(attempts===2)return {unavailable:true};
+      return {sub_url:subscription,ios:[{name:'Happ',deeplink:'happ://add/'+subscription}]};
+    });
+    const pending = open();
+    assert.match(views.at(-1),/Загружаем/);
+    await pending;
+    assert.match(views.at(-1),/HTTP 502/);
+    assert.match(views.at(-1),/Повторить/);
+    assert.doesNotMatch(views.at(-1),/subscriptions\.example\.invalid/);
+    await open();
+    assert.match(views.at(-1),/Сервис подписок временно недоступен/);
+    await open();
+    assert.match(views.at(-1),/happ:\/\/add\/https:/);
+    assert.doesNotMatch(views.at(-1),/import-subscription|Импорт через браузер/);
+    assert.equal(attempts,3);
+  });
+
+  test(design+' ignores a response after the customer goes back',async()=>{
+    let complete;
+    const {page,open,views} = connectPage(design,()=>new Promise(resolve=>{complete=resolve;}));
+    const pending = open();
+    page.PAGE='home';
+    page.CUR={name:'home',arg:{}};
+    complete({unavailable:true});
+    await pending;
+    assert.equal(views.length,1);
+  });
+}

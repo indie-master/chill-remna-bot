@@ -74,6 +74,19 @@ func TestPagesAreServedWithSharedScript(t *testing.T) {
 	}
 }
 
+func TestPagesDoNotServeBrowserSubscriptionImport(t *testing.T) {
+	handler := brandServer(&brandMini{ui: WebUIDTO{Design: designMinimal}})
+	for _, prefix := range []string{"/miniapp/", "/cabinet/"} {
+		for _, asset := range []string{"import-subscription.html", "import-subscription.js"} {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, prefix+asset, nil))
+			if response.Code != http.StatusNotFound {
+				t.Errorf("%s: got HTTP %d, want 404", prefix+asset, response.Code)
+			}
+		}
+	}
+}
+
 // Свой дизайн оператора без метки отдаётся как есть.
 func TestCustomPageWithoutMarkerIsUntouched(t *testing.T) {
 	page := []byte("<html><script>function mountChat(){}</script></html>")

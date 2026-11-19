@@ -861,10 +861,15 @@ func (a *App) MiniConnect(ctx context.Context, tgID int64) web.MiniConnectDTO {
 	var dto web.MiniConnectDTO
 	panel := a.panelClient()
 	if panel == nil {
+		dto.Unavailable = true
 		return dto
 	}
 	u, err := panel.FindByTelegramID(ctx, tgID)
-	if err != nil || u == nil || u.SubscriptionURL == "" {
+	if err != nil {
+		dto.Unavailable = true
+		return dto
+	}
+	if u == nil || u.SubscriptionURL == "" {
 		return dto
 	}
 	subURL := a.rewriteSub(u.SubscriptionURL)
@@ -873,11 +878,13 @@ func (a *App) MiniConnect(ctx context.Context, tgID int64) web.MiniConnectDTO {
 	// Панель хранит конфиг страницы подписки у себя и отдаёт его по токену.
 	// Это основной источник: не нужны ни cookie-сессия страницы, ни обход её
 	// защит. На панелях без такого API остаётся поход на саму страницу.
-	ce := a.fetchPanelAppConfig(ctx, panel, u.ShortUUID, subURL)
+	catalogCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ce := a.fetchPanelAppConfig(catalogCtx, panel, u.ShortUUID, subURL)
 	if ce == nil {
 		base := appConfigBase(subURL)
 		if base != "" {
-			ce = a.fetchAppConfig(ctx, base, subURL)
+			ce = a.fetchAppConfig(catalogCtx, base, subURL)
 		}
 	}
 	lang := a.lang(tgID)

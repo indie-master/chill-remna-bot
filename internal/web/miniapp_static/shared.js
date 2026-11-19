@@ -67,17 +67,33 @@ function jsq(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"
 // Копирование без Clipboard API (старые WebView).
 function fallbackCopy(t){try{var ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,String(t).length);var ok=document.execCommand('copy');document.body.removeChild(ta);return ok;}catch(e){return false;}}
 
-function subscriptionImportPage(deepLink, subscription){
-  var match=/^(happ|incy):\/\/add\//i.exec(deepLink||'');
-  if(!match||deepLink.slice(match[0].length)!==subscription||!/^https?:\/\//i.test(subscription))return '';
-  return new URL('import-subscription.html',window.location.href).href+'#'+match[1].toLowerCase()+'/'+encodeURIComponent(subscription);
+async function fetchConnectScreen(){
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ctrl.abort();},15000);
+  try{return await api('/api/miniapp/connect',{signal:ctrl.signal});}
+  finally{clearTimeout(timer);}
 }
-function connectImportActions(app, subscription, addLabel, browserLabel){
-  if(!/^[a-z][a-z0-9+.-]*:/i.test(app.deeplink||'')||/^(javascript|vbscript|data|file):/i.test(app.deeplink))return '';
-  var html='<a class="btn" href="'+esc(app.deeplink)+'" rel="noreferrer">'+IC.plus+esc(addLabel)+'</a>';
-  var browser=tg&&tg.initData?subscriptionImportPage(app.deeplink,subscription):'';
-  if(browser)html+='<button class="btn sec" onclick="openL(\''+jsq(browser)+'\')">'+esc(browserLabel)+'</button>';
-  return html;
+
+function connectLoadError(error,en){
+  if(!error)return en?'The subscription service is temporarily unavailable.':'Сервис подписок временно недоступен.';
+  if(error.name==='AbortError')return en?'The request timed out.':'Сервис не ответил вовремя.';
+  var status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?' (HTTP '+error.status+')':'';
+  return (en?'Could not load connection options':'Не удалось загрузить способы подключения')+status+'.';
+}
+function connectImportActions(app, subscription, addLabel){
+  var link=app.deeplink||'';
+  if(!subscription||!/^[a-z][a-z0-9+.-]*:\/\//i.test(link)||/^(https?|javascript|vbscript|data|file|blob|intent|ftp):/i.test(link))return '';
+  var en=typeof STATE!=='undefined'&&STATE.lang==='en';
+  var help=en?'If the app did not open, copy the subscription link and import it from the clipboard.':'Если приложение не открылось, скопируйте ссылку подписки и добавьте её в приложении из буфера обмена.';
+  return '<a class="btn" href="'+esc(link)+'" rel="noreferrer" onclick="showImportHelp(this)">'+IC.plus+esc(addLabel)+'</a>'+
+    '<div class="hint" role="status" hidden>'+esc(help)+'<button class="btn sec" onclick="copy(\''+jsq(subscription)+'\')">'+
+    IC.copy+esc(en?'Copy subscription link':'Скопировать ссылку подписки')+'</button></div>';
+}
+function showImportHelp(anchor){
+  // Let the WebView handle the link on the user gesture. A blocked launch
+  // never sends the subscription elsewhere, and manual import stays visible.
+  var help=anchor.nextElementSibling;
+  if(help)help.hidden=false;
 }
 async function post(path,body){return api(path,{method:'POST',body:JSON.stringify(body||{})});}
 var SUBSCRIPTIONS={enabled:false,items:[]};

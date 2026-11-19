@@ -1332,7 +1332,7 @@ async function topupPay(kopecks,method,el){
 }
 
 /* ---- connect (apps + deeplinks + QR) ---- */
-var CONNECT=null,CONNECT_KEY='';
+var CONNECT=null,CONNECT_KEY='',CONNECT_REQUEST=0;
 function detectOS(){
   try{var p=(tg&&tg.platform)||'';if(p==='ios')return 'ios';if(p==='android')return 'android';if(p==='windows')return 'windows';if(p==='linux')return 'linux';if(p==='macos')return WEB?'macos':'ios';}catch(e){}
   var ua=(navigator.userAgent||'').toLowerCase();
@@ -1359,13 +1359,25 @@ function connectList(){var p=curPlatform();return (p&&p.apps)||[];}
 // сервера уже обработан внятно: «скопируйте ссылку и добавьте вручную».
 async function openConnect(){
   PAGE='connect';
-  haptic('tap');skSimple();setBack(boot);
+  var request=++CONNECT_REQUEST,back='<button class="btn ghost back" onclick="boot()">← Назад</button>';
+  CONNECT=null;CONNECT_KEY='';
+  haptic('tap');
+  view('<div class="card" role="status">Загружаем способы подключения…</div>'+back,boot);
+  var response,error;
   try{
-    var d=await api('/api/miniapp/connect');CONNECT=d;
-    var ps=cnPlatforms();var want=detectOS();
-    CONNECT_KEY=(ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||''));
-    renderConnect();
-  }catch(e){haptic('err');toast('Ошибка: '+e.message,'err');boot();}
+    response=await fetchConnectScreen();
+  }catch(e){error=e;}
+  if(PAGE!=='connect'||request!==CONNECT_REQUEST)return;
+  if(error||!response||response.unavailable){
+    haptic('err');
+    view('<div class="card" role="status">'+esc(connectLoadError(error,false))+'</div>'+
+      '<button class="btn sec" onclick="openConnect()">Повторить</button>'+back,boot);
+    return;
+  }
+  CONNECT=response;
+  var ps=cnPlatforms(),want=detectOS();
+  CONNECT_KEY=ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||'');
+  renderConnect();
 }
 function setPlat(key){haptic('tap');CONNECT_KEY=key;renderConnect();}
 function drawQR(text){
@@ -1381,12 +1393,13 @@ function drawQR(text){
 function renderConnect(){
   var d=CONNECT||{};
   var h='<div class="stagger"><div class="card hero glow"><div class="top"><span class="status">'+IC.download+' Подключение</span>'+IC.globe+'</div>'+
-    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку». Если Telegram не открыл приложение, попробуйте через браузер или скопируйте ссылку.</div>';
+    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку».</div>';
   if(d.sub_url)h+='<div id="qrwrap" style="display:flex;flex-direction:column;align-items:center;margin-top:16px"><div id="qrbox" class="qrbox"></div>'+
     '<div class="hint center" style="margin-top:8px">Наведите камеру другого устройства, чтобы перенести подписку</div></div>';
   h+='</div>';
   if(d.sub_url)h+='<button class="btn sec" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку подписки</button>'+
     '<details class="xblk"><summary>Показать ссылку</summary><div class="xtext" style="overflow-wrap:anywhere;user-select:text">'+esc(d.sub_url)+'</div></details>';
+  else h+='<div class="card" role="status">Для выбранного подключения ссылка подписки недоступна.</div>';
   var hl=h;h='';
   var ps=cnPlatforms();
   if(ps.length>1){
@@ -1396,7 +1409,7 @@ function renderConnect(){
   }
   var list=connectList();
   var grid=list.length>1;
-  if(!list.length){
+  if(!list.length&&d.sub_url){
     h+='<div class="hint center" style="margin-top:16px">Список приложений недоступен. Скопируйте ссылку и добавьте её в приложение вручную.</div>';
   }
   if(grid)h+='<div class="cols">';
@@ -1406,7 +1419,7 @@ function renderConnect(){
     (ap.installs||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="openL(\''+jsq(b.url)+'\')">'+IC.download+esc(b.text||'Установить')+'</button>';
     });
-    h+=connectImportActions(ap,d.sub_url,'Добавить подписку','Импорт через браузер');
+    h+=connectImportActions(ap,d.sub_url,'Добавить подписку');
     (ap.copies||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="copy(\''+jsq(b.url)+'\')">'+IC.copy+esc(b.text||'Скопировать ссылку')+'</button>';
     });

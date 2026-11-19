@@ -512,11 +512,12 @@ type MiniConnectPlatformDTO struct {
 }
 
 type MiniConnectDTO struct {
-	SubURL    string                   `json:"sub_url,omitempty"`
-	Username  string                   `json:"username,omitempty"`
-	Platforms []MiniConnectPlatformDTO `json:"platforms,omitempty"`
-	Android   []MiniConnectAppDTO      `json:"android,omitempty"`
-	IOS       []MiniConnectAppDTO      `json:"ios,omitempty"`
+	SubURL      string                   `json:"sub_url,omitempty"`
+	Username    string                   `json:"username,omitempty"`
+	Unavailable bool                     `json:"unavailable,omitempty"`
+	Platforms   []MiniConnectPlatformDTO `json:"platforms,omitempty"`
+	Android     []MiniConnectAppDTO      `json:"android,omitempty"`
+	IOS         []MiniConnectAppDTO      `json:"ios,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -974,6 +975,7 @@ func (v *jsonID) UnmarshalJSON(b []byte) error {
 }
 
 func (s *Server) handleMiniConnect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, _, ok := s.miniGuard(w, r)
 	if !ok {
 		return
