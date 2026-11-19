@@ -124,6 +124,11 @@ const (
 )
 
 func (a *App) handleCallback(ctx context.Context, cq *models.CallbackQuery) {
+	var valid bool
+	ctx, cq, valid = a.subscriptionCallbackContext(ctx, cq)
+	if !valid {
+		return
+	}
 	// «Убрать» отвечает на нажатие сам: удалить старое сообщение Telegram
 	// может не дать, и это нужно показать всплывающей надписью.
 	removing := cq.Data == cbClose+":close"
@@ -173,6 +178,10 @@ func (a *App) handleCallback(ctx context.Context, cq *models.CallbackQuery) {
 	}
 
 	switch key {
+	case "sop":
+		a.onSubscriptionReview(ctx, chatID, val)
+	case "subpick":
+		a.onSubscriptionPick(ctx, chatID, val)
 	case "botlang":
 		// Смена языка уже настроенного бота — отдельный ключ: cbLang живёт
 		// только при активном мастере установки.

@@ -21,6 +21,12 @@ import (
 // предыдущий образ бота, который про них не знает, продолжает писать свои
 // строки — откат остаётся безопасным.
 type PlanSnapshot struct {
+	// SubscriptionID identifies the sold panel account, independently of the
+	// customer's current UI selection. Empty only for legacy single-account sales.
+	SubscriptionID string `json:"subscription_id,omitempty"`
+	InvoiceID      string `json:"invoice_id,omitempty"`
+	NewAccount     bool   `json:"new_account,omitempty"`
+	BalanceKopecks int64  `json:"balance_kopecks,omitempty"`
 	// Code и Name — опознание тарифа, которым продана эта сделка. В отпечаток
 	// условий они не входят: переименование тарифа условий не меняет.
 	Code string `json:"code,omitempty"`
@@ -76,6 +82,19 @@ type PlanSnapshot struct {
 	// при этой сделке (0 — тариф не менялся). Только для истории платежей —
 	// в отпечаток не входит.
 	SwitchDays int `json:"switch_days,omitempty"`
+}
+
+// ForRenewal keeps sold terms and account identity, but not the one-use invoice
+// key or permission to provision the customer's first account.
+func (s *PlanSnapshot) ForRenewal() *PlanSnapshot {
+	if s == nil {
+		return nil
+	}
+	copy := *s
+	copy.InvoiceID = ""
+	copy.NewAccount = false
+	copy.BalanceKopecks = 0
+	return &copy
 }
 
 // AddSubSold — продана ли доп-подписка этой сделкой. Отсутствие снимка или

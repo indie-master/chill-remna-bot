@@ -104,8 +104,19 @@ func fillEveryColumn(t *testing.T, st Storage, salt int) {
 		}
 		for r := 1; r <= 3; r++ {
 			args := make([]any, len(cols))
+			var subscriptionOwner int64
+			var subscriptionID string
+			if table == "subscription_selections" {
+				if err := b.db.QueryRowContext(ctx, "SELECT telegram_id, id FROM customer_subscriptions ORDER BY id LIMIT 1 OFFSET "+b.ph(1), r-1).Scan(&subscriptionOwner, &subscriptionID); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for i, c := range cols {
 				switch {
+				case table == "subscription_selections" && c.name == "telegram_id":
+					args[i] = subscriptionOwner
+				case table == "subscription_selections" && c.name == "subscription_id":
+					args[i] = subscriptionID
 				case c.isInt:
 					args[i] = int64(1000000000 + salt*100000 + ti*1000 + r*100 + i)
 				case strings.HasSuffix(c.name, "_at"):

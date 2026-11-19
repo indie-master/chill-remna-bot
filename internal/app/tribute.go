@@ -106,6 +106,10 @@ func (a *App) saleTitleHTML(ctx context.Context, lang string, s *sale) string {
 }
 
 func (a *App) startTribute(ctx context.Context, chatID int64) {
+	if !a.tributeSubscriptionSupported(ctx, chatID) {
+		a.sendHome(ctx, chatID, "Выберите другой способ оплаты для этой подписки")
+		return
+	}
 	lang := a.lang(chatID)
 	// Тариф и срок — из намерения покупки, с тем же гейтом доступности, что у
 	// остальных способов: счёт живёт на стороне Tribute, и вторая точка гейта

@@ -66,7 +66,64 @@ function tgNonce(){
 function jsq(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'\\n').replace(/\r/g,'\\r');}
 // Копирование без Clipboard API (старые WebView).
 function fallbackCopy(t){try{var ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,String(t).length);var ok=document.execCommand('copy');document.body.removeChild(ta);return ok;}catch(e){return false;}}
+
+async function fetchConnectScreen(){
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ctrl.abort();},15000);
+  try{return await api('/api/miniapp/connect',{signal:ctrl.signal});}
+  finally{clearTimeout(timer);}
+}
+
+function connectLoadError(error,en){
+  if(!error)return en?'The subscription service is temporarily unavailable.':'Сервис подписок временно недоступен.';
+  if(error.name==='AbortError')return en?'The request timed out.':'Сервис не ответил вовремя.';
+  var status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?' (HTTP '+error.status+')':'';
+  return (en?'Could not load connection options':'Не удалось загрузить способы подключения')+status+'.';
+}
+function connectImportActions(app, subscription, addLabel){
+  var link=app.deeplink||'';
+  if(!subscription||!/^[a-z][a-z0-9+.-]*:\/\//i.test(link)||/^(https?|javascript|vbscript|data|file|blob|intent|ftp):/i.test(link))return '';
+  var en=typeof STATE!=='undefined'&&STATE.lang==='en';
+  var help=en?'If the app did not open, copy the subscription link and import it from the clipboard.':'Если приложение не открылось, скопируйте ссылку подписки и добавьте её в приложении из буфера обмена.';
+  return '<a class="btn" href="'+esc(link)+'" rel="noreferrer" onclick="showImportHelp(this)">'+IC.plus+esc(addLabel)+'</a>'+
+    '<div class="hint" role="status" hidden>'+esc(help)+'<button class="btn sec" onclick="copy(\''+jsq(subscription)+'\')">'+
+    IC.copy+esc(en?'Copy subscription link':'Скопировать ссылку подписки')+'</button></div>';
+}
+function showImportHelp(anchor){
+  // Let the WebView handle the link on the user gesture. A blocked launch
+  // never sends the subscription elsewhere, and manual import stays visible.
+  var help=anchor.nextElementSibling;
+  if(help)help.hidden=false;
+}
 async function post(path,body){return api(path,{method:'POST',body:JSON.stringify(body||{})});}
+var SUBSCRIPTIONS={enabled:false,items:[]};
+async function loadSubscriptions(){
+  var previous=SUBSCRIPTIONS.selected_id;
+  try{SUBSCRIPTIONS=await api('/api/miniapp/subscriptions');}
+  catch(e){if(e.status===404){SUBSCRIPTIONS={enabled:false,items:[]};return;}throw e;}
+  if(SUBSCRIPTIONS.error)throw new Error(SUBSCRIPTIONS.error);
+  if(previous&&(SUBSCRIPTIONS.items||[]).some(function(s){return s.id===previous;}))SUBSCRIPTIONS.selected_id=previous;
+}
+function subscriptionHeaders(path,h){
+  if(path!=='/api/miniapp/subscriptions'&&path!=='/api/miniapp/auth'&&SUBSCRIPTIONS.enabled&&SUBSCRIPTIONS.selected_id)h['X-Subscription-ID']=SUBSCRIPTIONS.selected_id;
+  return h;
+}
+function subscriptionPicker(){
+  var data=SUBSCRIPTIONS||{},items=data.items||[];
+  if(!data.enabled||!items.length)return '';
+  var en=STATE.lang==='en',label=en?'Subscription':'Подписка';
+  var h='<div class="card"><label><span>'+label+'</span><select aria-label="'+label+'" style="width:100%;margin-top:8px;padding:12px;border-radius:12px;font:inherit;color:inherit;background:transparent" onchange="pickSubscription(this.value,this)">';
+  if(!data.selected_id)h+='<option value="">'+(en?'Select a subscription':'Выберите подписку')+'</option>';
+  items.forEach(function(s){h+='<option value="'+esc(s.id)+'"'+(s.id===data.selected_id?' selected':'')+'>'+esc(s.label)+'</option>';});
+  return h+'</select></label></div>';
+}
+async function pickSubscription(id,el){
+  if(!id)return;
+  el.disabled=true;
+  try{var result=await post('/api/miniapp/subscriptions/select',{id:id});if(result.error)throw new Error(result.error);SUBSCRIPTIONS.selected_id=id;await boot();}
+  catch(e){if(typeof toast==='function')toast(e.message,'err');else window.alert(e.message);}
+  finally{el.disabled=false;}
+}
 function mkErr(st,m){var e=new Error(m||('HTTP '+st));e.status=st;return e;}
 // true — ссылку открыл сам Telegram.
 function openSmart(u){if(isTgLink(u)&&tg&&tg.openTelegramLink){try{tg.openTelegramLink(u);return true;}catch(e){}}openL(u);return false;}

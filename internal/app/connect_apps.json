@@ -1,0 +1,54 @@
+{
+  "platforms": {
+    "ios": {
+      "apps": [
+        {
+          "name": "Happ",
+          "blocks": [
+            {"buttons": [{"type": "external", "link": "https://apps.apple.com/us/app/happ-proxy-utility/id6504287215", "text": {"ru": "App Store", "en": "App Store"}}]},
+            {"buttons": [{"type": "subscriptionLink", "link": "happ://add/{{SUBSCRIPTION_LINK}}"}]},
+            {"title": {"ru": "Если приложение недоступно в App Store", "en": "If the app is unavailable in your App Store"}, "description": {"ru": "В настройках iPhone откройте Аккаунт Apple → Медиаматериалы и покупки → Просмотреть → Страна/регион. Перед сменой проверьте баланс, действующие подписки и требования нового региона. Затем снова откройте App Store.", "en": "In iPhone Settings, open Apple Account → Media & Purchases → View Account → Country/Region. Check your balance, active subscriptions and the new region's requirements before changing it. Then reopen the App Store."}, "buttons": [{"type": "external", "link": "https://support.apple.com/118283", "text": {"ru": "Инструкция Apple", "en": "Apple instructions"}}]},
+            {"title": {"ru": "Как добавить вручную", "en": "How to add manually"}, "description": {"ru": "Скопируйте ссылку подписки. В Happ нажмите «+», выберите импорт из буфера обмена, затем выберите сервер и подключитесь.", "en": "Copy the subscription URL. In Happ, tap + and import from the clipboard, then choose a server and connect."}}
+          ]
+        },
+        {
+          "name": "INCY",
+          "blocks": [
+            {"buttons": [{"type": "external", "link": "https://apps.apple.com/us/app/incy/id6756943388", "text": {"ru": "App Store", "en": "App Store"}}]},
+            {"buttons": [{"type": "subscriptionLink", "link": "incy://add/{{SUBSCRIPTION_LINK}}"}]},
+            {"title": {"ru": "Если приложение недоступно в App Store", "en": "If the app is unavailable in your App Store"}, "description": {"ru": "В настройках iPhone откройте Аккаунт Apple → Медиаматериалы и покупки → Просмотреть → Страна/регион. Перед сменой проверьте баланс, действующие подписки и требования нового региона. Затем снова откройте App Store.", "en": "In iPhone Settings, open Apple Account → Media & Purchases → View Account → Country/Region. Check your balance, active subscriptions and the new region's requirements before changing it. Then reopen the App Store."}, "buttons": [{"type": "external", "link": "https://support.apple.com/118283", "text": {"ru": "Инструкция Apple", "en": "Apple instructions"}}]},
+            {"title": {"ru": "Как добавить вручную", "en": "How to add manually"}, "description": {"ru": "Скопируйте ссылку подписки, откройте INCY и добавьте её через импорт из буфера или по URL. Выберите сервер и подключитесь.", "en": "Copy the subscription URL, open INCY and import it from the clipboard or by URL. Choose a server and connect."}}
+          ]
+        }
+      ]
+    },
+    "android": {
+      "apps": [
+        {
+          "name": "Happ",
+          "blocks": [
+            {"buttons": [
+              {"type": "external", "link": "https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk", "text": {"ru": "Скачать APK Happ", "en": "Download Happ APK"}},
+              {"type": "external", "link": "https://happ.info/", "text": {"ru": "Сайт Happ", "en": "Happ website"}}
+            ]},
+            {"buttons": [{"type": "subscriptionLink", "link": "happ://add/{{SUBSCRIPTION_LINK}}"}]},
+            {"title": {"ru": "Как установить APK", "en": "How to install the APK"}, "description": {"ru": "Скачайте APK разработчика и откройте его из загрузок. Если Android спросит, разрешите установку для браузера или файлового менеджера. После установки это разрешение можно отключить.", "en": "Download the developer's APK and open it from Downloads. If Android asks, allow installation for your browser or file manager. You can turn that permission off after installation."}},
+            {"title": {"ru": "Как добавить вручную", "en": "How to add manually"}, "description": {"ru": "Скопируйте ссылку подписки. В Happ нажмите «+», выберите импорт из буфера обмена, затем выберите сервер и подключитесь.", "en": "Copy the subscription URL. In Happ, tap + and import from the clipboard, then choose a server and connect."}}
+          ]
+        },
+        {
+          "name": "INCY",
+          "blocks": [
+            {"buttons": [
+              {"type": "external", "link": "https://play.google.com/store/apps/details?id=llc.itdev.incy", "text": {"ru": "Google Play", "en": "Google Play"}},
+              {"type": "external", "link": "https://github.com/INCY-DEV/incy-platforms/releases/download/latest/Incy.apk", "text": {"ru": "Скачать APK INCY", "en": "Download INCY APK"}}
+            ]},
+            {"buttons": [{"type": "subscriptionLink", "link": "incy://add/{{SUBSCRIPTION_LINK}}"}]},
+            {"title": {"ru": "Как установить APK", "en": "How to install the APK"}, "description": {"ru": "Если Google Play недоступен, скачайте APK разработчика и откройте его из загрузок. Если Android спросит, разрешите установку для браузера или файлового менеджера. После установки это разрешение можно отключить.", "en": "If Google Play is unavailable, download the developer's APK and open it from Downloads. If Android asks, allow installation for your browser or file manager. You can turn that permission off after installation."}},
+            {"title": {"ru": "Как добавить вручную", "en": "How to add manually"}, "description": {"ru": "Скопируйте ссылку подписки, откройте INCY и добавьте её через импорт из буфера или по URL. Выберите сервер и подключитесь.", "en": "Copy the subscription URL, open INCY and import it from the clipboard or by URL. Choose a server and connect."}}
+          ]
+        }
+      ]
+    }
+  }
+}

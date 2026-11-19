@@ -322,6 +322,9 @@ func (a *App) showMethods(ctx context.Context, chatID int64, months int) {
 // showMethodsSale — тот же экран для явно переданной продажи: у тарифа по
 // ссылке цены берутся из его строки, у «Базового» — из сетки конфига.
 func (a *App) showMethodsSale(ctx context.Context, chatID int64, s *sale) {
+	if s != nil && s.SubscriptionID != "" {
+		ctx = remnawave.WithSubscriptionTarget(ctx, chatID, s.SubscriptionID)
+	}
 	lang := a.lang(chatID)
 	a.mu.Lock()
 	var p2p model.P2PConfig
@@ -377,7 +380,7 @@ func (a *App) showMethodsSale(ctx context.Context, chatID int64, s *sale) {
 	// Tribute продаёт тариф своей подпиской: кнопка есть у тарифа с
 	// привязанной подпиской (у «Базового» — со ссылкой оплаты). Сравнивается
 	// код: «Базовый» с витрины приходит строкой тарифа, а не пустым Plan.
-	if url, _ := a.tributeOffer(lang, s.Plan, s.planCode()); url != "" {
+	if url, _ := a.tributeOffer(lang, s.Plan, s.planCode()); url != "" && a.tributeSubscriptionSupported(ctx, chatID) {
 		rows = append(rows, []models.InlineKeyboardButton{btn(i18n.T(lang, "method.trb_btn", methodName(lang, model.PayMethodTribute)), "method:trb")})
 	}
 
@@ -1422,6 +1425,18 @@ type dealDone struct {
 // не проверяются (тариф выбрал администратор), остальное — как у покупки.
 func (a *App) closeDeal(ctx context.Context, telegramID int64, months int, method, amount, extID string, snap *model.PlanSnapshot, grant bool) (dealDone, error) {
 	var d dealDone
+	if extID != "" && a.storeRef() != nil {
+		if done, err := a.storeRef().PaymentByExtID(ctx, extID); err != nil {
+			return d, err
+		} else if done {
+			return d, storage.ErrDuplicateExtID
+		}
+	}
+	scoped, _, scopeErr := a.dealSubscriptionContext(ctx, telegramID, snap)
+	if scopeErr != nil {
+		return d, scopeErr
+	}
+	ctx = scoped
 	if a.orphanInvoice(ctx, method, extID, telegramID, amount) {
 		return d, errOrphanPayment
 	}
@@ -1493,12 +1508,22 @@ func (a *App) finalizePurchaseCore(ctx context.Context, telegramID int64, months
 	ulk := &a.finalizeUserLk[extLockIndex(strconv.FormatInt(telegramID, 10))]
 	ulk.Lock()
 	defer ulk.Unlock()
+	scoped, target, scopeErr := a.dealSubscriptionContext(ctx, telegramID, snap)
+	if scopeErr != nil {
+		return "", "", nil, scopeErr
+	}
+	ctx = scoped
 	a.mu.Lock()
 	panel := a.panel
 	if snap == nil {
 		snap = a.planSnapshotLocked(months)
 	}
 	a.mu.Unlock()
+	snapshotCopy := *snap
+	snap = &snapshotCopy
+	if target != nil {
+		snap.SubscriptionID = target.ID
+	}
 	// Срок из счёта главнее того, что записано в снимке: снимок мог быть снят
 	// на другой срок только из-за ошибки, и лишний рассинхрон здесь опаснее,
 	// чем расхождение внутри снимка.
@@ -1534,7 +1559,9 @@ func (a *App) finalizePurchaseCore(ctx context.Context, telegramID int64, months
 	// окно нового снимка (BoughtDays).
 	var prevSnap *model.PlanSnapshot
 	prevExpire := ""
-	if a.store != nil {
+	if target != nil {
+		prevSnap, prevExpire = target.Snapshot, target.ExpireAt
+	} else if a.store != nil {
 		if u, _ := a.store.GetUser(ctx, telegramID); u != nil {
 			prevSnap, prevExpire = u.Snapshot, u.SubExpireAt
 		}
@@ -1565,6 +1592,18 @@ func (a *App) finalizePurchaseCore(ctx context.Context, telegramID int64, months
 	// продления месяцами.
 	var link, expireAt string
 	var err error
+	operationStore, operationKey, claimErr := a.claimDealOperation(ctx, telegramID, method, extID, amount, snap)
+	if claimErr != nil {
+		return "", "", nil, claimErr
+	}
+	if operationStore != nil {
+		ctx = remnawave.WithExpiryObserver(ctx, func(expiry string) error {
+			return operationStore.SetSubscriptionExpectedExpiry(ctx, method, operationKey, expiry)
+		})
+	}
+	if snap.NewAccount {
+		ctx = remnawave.WithNewAccountOnly(ctx, telegramID)
+	}
 	if snap.Days > 0 {
 		link, expireAt, err = panel.ExtendUserDays(ctx, telegramID, snap.Days, extraDays, limits, dayDealResets(prevSnap, prevExpire, snap))
 	} else {
@@ -1572,25 +1611,30 @@ func (a *App) finalizePurchaseCore(ctx context.Context, telegramID int64, months
 	}
 	if err != nil {
 		a.payLog(ctx, method, extID, telegramID, "panel_error", "%v", err)
+		if operationStore != nil {
+			return "", "", nil, errors.Join(storage.ErrSubscriptionUncertain, err)
+		}
 		return "", "", nil, err
 	}
 	a.payLog(ctx, method, extID, telegramID, "panel_ok", "expire=%s", expireAt)
 	link = a.rewriteSub(link)
 	a.invalidateSubCache(telegramID)
 	if a.store != nil {
-		err := a.store.AddPayment(ctx, &model.Payment{
-			TelegramID: telegramID, Method: method, Months: months, Amount: amount, Status: model.PaymentPaid, ExtID: extID,
-			Snapshot: snap,
-		})
+		record := func() error {
+			payment := &model.Payment{TelegramID: telegramID, Method: method, Months: months, Amount: amount,
+				Status: model.PaymentPaid, ExtID: extID, Snapshot: snap}
+			if operationStore != nil {
+				return operationStore.CommitSubscriptionOperation(ctx, operationKey, payment, expireAt)
+			}
+			return a.store.AddPayment(ctx, payment)
+		}
+		err := record()
 		// Запись платежа — барьер идемпотентности: по ней PaymentByExtID решает,
 		// финализировать ли повторно. Транзиентный сбой (database is locked,
 		// обрыв соединения) пробуем пережить повтором.
 		for i := 0; i < 2 && err != nil && !errors.Is(err, storage.ErrDuplicateExtID); i++ {
 			time.Sleep(200 * time.Millisecond)
-			err = a.store.AddPayment(ctx, &model.Payment{
-				TelegramID: telegramID, Method: method, Months: months, Amount: amount, Status: model.PaymentPaid, ExtID: extID,
-				Snapshot: snap,
-			})
+			err = record()
 		}
 		if err != nil {
 			if errors.Is(err, storage.ErrDuplicateExtID) && extID != "" {
@@ -1610,11 +1654,16 @@ func (a *App) finalizePurchaseCore(ctx context.Context, telegramID int64, months
 			}
 			alang := a.lang(a.cfg.AdminID)
 			a.notify(ctx, a.cfg.AdminID, i18n.T(alang, "admin.payment_unrecorded", methodLabel(method), extID, a.userLabelByID(ctx, telegramID), amount))
+			if operationStore != nil {
+				return "", "", nil, errors.Join(storage.ErrSubscriptionUncertain, err)
+			}
 		}
-		_ = a.store.SetSubExpiry(ctx, telegramID, expireAt, "paid")
-		// Снимок действующей подписки: локальной сущности подписки у бота нет,
-		// а знать проданные условия нужно и сверке лимитов, и бонусным дням.
-		_ = a.store.SetUserSnapshot(ctx, telegramID, snap)
+		if target == nil {
+			_ = a.store.SetSubExpiry(ctx, telegramID, expireAt, "paid")
+			// Снимок действующей подписки: локальной сущности подписки у бота нет,
+			// а знать проданные условия нужно и сверке лимитов, и бонусным дням.
+			_ = a.store.SetUserSnapshot(ctx, telegramID, snap.ForRenewal())
+		}
 	}
 	a.payLog(ctx, method, extID, telegramID, "done", "подписка выдана, ссылка отправляется")
 	if grant {

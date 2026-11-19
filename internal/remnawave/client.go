@@ -63,7 +63,8 @@ type Client struct {
 	// accountEmail — подтверждённая почта аккаунта для поля email учётки, в том
 	// числе после привязки Telegram ("" — писать нечего). Отдельно от emailFor:
 	// искать по почте можно только аккаунты без Telegram, а вписывать — всем.
-	accountEmail func(ctx context.Context, telegramID int64) string
+	accountEmail         func(ctx context.Context, telegramID int64) string
+	subscriptionResolver func(context.Context, int64, string) (string, error)
 }
 
 // SetEmailResolver подключает поиск учётки по почте для аккаунтов кабинета.
@@ -541,7 +542,8 @@ type panelUser struct {
 
 	// byEmail — учётка найдена по подтверждённой почте аккаунта кабинета
 	// (см. findByAccountEmail): владение тогда доказано самим поиском.
-	byEmail bool
+	byEmail    bool
+	boundOwner int64
 
 	TrafficLimitStrategy string `json:"trafficLimitStrategy"`
 	// HwidDeviceLimit: null — действует лимит по умолчанию панели, 0 —
@@ -691,6 +693,9 @@ func ownedByBot(u *panelUser, telegramID int64) bool {
 		return false
 	}
 	if u.byEmail {
+		return true
+	}
+	if u.boundOwner == telegramID {
 		return true
 	}
 	return u.TelegramID == telegramID || u.Username == botUsername(telegramID)
@@ -1151,6 +1156,9 @@ func (c *Client) grant(ctx context.Context, telegramID int64, limits UserLimits,
 	existing, err := c.findByTelegram(ctx, telegramID)
 	if err != nil {
 		return "", "", err
+	}
+	if owner, _ := ctx.Value(newAccountOnlyKey{}).(int64); owner == telegramID && existing != nil {
+		return "", "", ErrNewAccountExists
 	}
 	until := expire(existing)
 	email := c.emailToWrite(ctx, telegramID)
@@ -1909,6 +1917,19 @@ func (c *Client) findByTelegramOnce(ctx context.Context, telegramID int64) (*pan
 // findByTelegram resolves a user by telegram id in whichever dialect the panel
 // speaks (see panelGen).
 func (c *Client) findByTelegram(ctx context.Context, telegramID int64) (*panelUser, error) {
+	requested := subscriptionTargetFor(ctx, telegramID)
+	if c.subscriptionResolver != nil {
+		ref, err := c.subscriptionResolver(ctx, telegramID, requested)
+		if err != nil {
+			return nil, err
+		}
+		if ref != "" {
+			return c.findBoundAccount(ctx, telegramID, ref)
+		}
+	}
+	if requested != "" {
+		return nil, ErrBoundAccountUnavailable
+	}
 	if telegramID < 0 {
 		// Синтетическая личность аккаунта веб-кабинета, заведённого по почте.
 		// Фильтр панели принимает только неотрицательный telegramId
@@ -1982,7 +2003,9 @@ func (c *Client) findByTelegram(ctx context.Context, telegramID int64) (*panelUs
 // gone=true means the route can't answer this (not there — wrong base URL, or
 // a panel older than 2.8.0 — or there without the telegramId filter, as on 2.8.x).
 func (c *Client) findByTelegramStream(ctx context.Context, telegramID int64) (u *panelUser, gone bool, err error) {
-	path := "/api/users/stream?size=1&telegramId=" + strconv.FormatInt(telegramID, 10)
+	// Two results are enough to detect ambiguous ownership. Choosing the first
+	// result can renew or expose the wrong account during a migration.
+	path := "/api/users/stream?size=2&telegramId=" + strconv.FormatInt(telegramID, 10)
 	resp, err := c.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil, false, fmt.Errorf("нет связи с панелью: %w", err)
@@ -2004,20 +2027,20 @@ func (c *Client) findByTelegramStream(ctx context.Context, telegramID int64) (u 
 	}
 	// Never trust the filter blindly: a panel (or anything in front of it) that
 	// ignores telegramId would otherwise hand out another subscriber's account.
+	var found *panelUser
 	for i := range env.Response.Users {
 		if env.Response.Users[i].TelegramID != telegramID {
-			continue
+			return nil, true, nil
 		}
-		c.noteUser(&env.Response.Users[i])
-		return &env.Response.Users[i], false, nil
+		if found != nil {
+			return nil, false, ErrAmbiguousAccount
+		}
+		found = &env.Response.Users[i]
 	}
-	if len(env.Response.Users) > 0 {
-		// Someone else came back, so the filter was not applied (2.8.x has this
-		// route without it). Treat it like a missing route: "no such user" here
-		// would let a renewal create a second account.
-		return nil, true, nil
+	if found != nil {
+		c.noteUser(found)
 	}
-	return nil, false, nil
+	return found, false, nil
 }
 
 // findByTelegramLegacy is the pre-3.0.0 lookup, removed by the panel in 3.0.0.
@@ -2044,7 +2067,13 @@ func (c *Client) findByTelegramLegacy(ctx context.Context, telegramID int64) (u 
 	}
 	var arr []panelUser
 	if json.Unmarshal(env.Response, &arr) == nil {
+		if len(arr) > 1 {
+			return nil, false, ErrAmbiguousAccount
+		}
 		if len(arr) > 0 {
+			if arr[0].TelegramID != 0 && arr[0].TelegramID != telegramID {
+				return nil, false, ErrAccountOwnerMismatch
+			}
 			c.noteUser(&arr[0])
 			return &arr[0], false, nil
 		}
@@ -2057,6 +2086,9 @@ func (c *Client) findByTelegramLegacy(ctx context.Context, telegramID int64) (u 
 	}
 	var one panelUser
 	if json.Unmarshal(env.Response, &one) == nil && !one.ref().Empty() {
+		if one.TelegramID != 0 && one.TelegramID != telegramID {
+			return nil, false, ErrAccountOwnerMismatch
+		}
 		c.noteUser(&one)
 		return &one, false, nil
 	}
@@ -2189,6 +2221,15 @@ func (c *Client) LinkTelegramID(ctx context.Context, ref UserRef, telegramID int
 }
 
 func (c *Client) upsertCall(ctx context.Context, method, path string, body any) (string, string, error) {
+	if observe, ok := ctx.Value(expiryObserverKey{}).(func(string) error); ok && path == "/api/users" {
+		if values, ok := body.(map[string]any); ok {
+			if expiry, _ := values["expireAt"].(string); expiry != "" {
+				if err := observe(expiry); err != nil {
+					return "", "", err
+				}
+			}
+		}
+	}
 	resp, err := c.do(ctx, method, path, body)
 	if err != nil {
 		return "", "", fmt.Errorf("нет связи с панелью: %w", err)

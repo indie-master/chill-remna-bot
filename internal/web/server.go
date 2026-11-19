@@ -96,6 +96,8 @@ func (s *Server) mux() *http.ServeMux {
 	mux.HandleFunc("GET /api/miniapp/menu", s.handleMiniMenu)
 	mux.HandleFunc("POST /api/miniapp/legal/accept", s.handleMiniAcceptLegal)
 	mux.HandleFunc("GET /api/miniapp/subscription", s.handleMiniSubscription)
+	mux.HandleFunc("GET /api/miniapp/subscriptions", s.handleMiniSubscriptions)
+	mux.HandleFunc("POST /api/miniapp/subscriptions/select", s.handleMiniSelectSubscription)
 	mux.HandleFunc("GET /api/miniapp/plans", s.handleMiniPlans)
 	mux.HandleFunc("POST /api/miniapp/trial", s.handleMiniTrial)
 	mux.HandleFunc("POST /api/miniapp/checkout", s.handleMiniCheckout)

@@ -20,6 +20,7 @@ import (
 
 // sale — что именно продаём: тариф, длительность и срок.
 type sale struct {
+	SubscriptionID string
 	// Plan == nil — «Базовый»: цены и лимиты берутся из сетки конфига, как
 	// раньше. Не nil — продажа по строке тарифа.
 	Plan *model.Plan
@@ -65,6 +66,9 @@ func (a *App) saleFor(ctx context.Context, chatID int64) (*sale, error) {
 	if in == nil {
 		return nil, nil
 	}
+	if _, _, err := a.dealSubscriptionContext(ctx, chatID, &model.PlanSnapshot{SubscriptionID: in.SubscriptionID}); err != nil {
+		return nil, err
+	}
 	if in.PlanCode == "" || in.PlanCode == model.PlanCodeBase {
 		// Проверяем не только «выбор есть», но и «срок ещё продаётся» и «тариф
 		// доступен»: админ мог убрать цену или сменить режим доступности, пока
@@ -87,6 +91,7 @@ func (a *App) saleFor(ctx context.Context, chatID int64) (*sale, error) {
 		}
 		bs := baseSale(in.Months)
 		bs.ShownPrice = in.ShownPrice
+		bs.SubscriptionID = in.SubscriptionID
 		return bs, nil
 	}
 	p, err := a.planByCode(ctx, in.PlanCode)
@@ -105,7 +110,7 @@ func (a *App) saleFor(ctx context.Context, chatID int64) (*sale, error) {
 	if !a.planAccessibleFor(ctx, p, chatID) {
 		return nil, nil
 	}
-	return &sale{Plan: p, D: d, Months: in.Months, ShownPrice: in.ShownPrice}, nil
+	return &sale{Plan: p, D: d, Months: in.Months, ShownPrice: in.ShownPrice, SubscriptionID: in.SubscriptionID}, nil
 }
 
 // saleOrAsk — продажа из намерения; если продавать нечего, показывает витрину
@@ -261,10 +266,15 @@ func (a *App) saleSnapshot(s *sale) *model.PlanSnapshot {
 	if s == nil {
 		return nil
 	}
+	var snap *model.PlanSnapshot
 	if s.Plan == nil {
-		return a.planSnapshot(s.Months)
+		snap = a.planSnapshot(s.Months)
+	} else {
+		snap = a.planSnapshotOf(s.Plan, s.D, s.Months)
 	}
-	return a.planSnapshotOf(s.Plan, s.D, s.Months)
+	snap.SubscriptionID = s.SubscriptionID
+	snap.NewAccount = a.multiSubscriptions() && s.SubscriptionID == ""
+	return snap
 }
 
 // planSnapshotOf снимает условия сделки со строки тарифа — аналог

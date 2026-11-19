@@ -370,7 +370,7 @@ var L={ru:{
  devices_title:'Устройства',devices_reset:'Сбросить устройства',devices_ask:'Сбросить все устройства?\n\nОни отключатся, а ключи доступа обновятся. Чтобы снова подключиться, обновите подписку на каждом нужном устройстве.',
  devices_done:'Готово. Обновите подписку на устройствах',devices_none:'Подключённых устройств пока нет',dev_hint:'Устройство появляется здесь после первого подключения по ссылке подписки. Сброс отключает все устройства и меняет ключи доступа.',dev_empty_hint:'Установите приложение и добавьте подписку — устройство появится здесь.',ref_link:'Ваша ссылка',ref_site:'Ссылка на сайт — для друзей без Telegram',ref_tg:'Ссылка на бота в Telegram',ref_qr_site:'Покажите QR-код другу — он откроет сайт по вашей ссылке.',ref_qr:'Покажите QR-код другу — он откроет бота по вашей ссылке.',devices_fail:'Не удалось сбросить устройства',
  cancel:'Отмена',do_reset:'Сбросить',
- conn_title:'Подключение',conn_text:'Установите приложение и нажмите «Добавить подписку» — она импортируется сама.',conn_qr:'Наведите камеру другого устройства, чтобы перенести подписку',
+ conn_title:'Подключение',conn_text:'Установите приложение и нажмите «Добавить подписку».',conn_qr:'Наведите камеру другого устройства, чтобы перенести подписку',
  conn_empty:'Список приложений недоступен. Скопируйте ссылку и добавьте её в приложение вручную.',add_sub:'Добавить подписку',install:'Установить',recommended:'Рекомендуем',
  docs:'Документы',docs_gate:'Документы сервиса',docs_gate_text:'Ознакомьтесь и подтвердите согласие — это нужно сделать один раз.',docs_pay:'Перед оплатой',accept:'Принимаю',open_full:'Открыть полностью',
  support:'Поддержка',group:'Наша группа',
@@ -424,7 +424,7 @@ var L={ru:{
  devices_title:'Devices',devices_reset:'Reset devices',devices_ask:'Reset all devices?\n\nThey will be disconnected and access keys will change. To reconnect, update the subscription on each device you need.',
  devices_done:'Done. Update the subscription on your devices',devices_none:'No connected devices yet',dev_hint:'A device shows up here after it first connects with your subscription link. Reset disconnects every device and changes the access keys.',dev_empty_hint:'Install an app and add the subscription — the device will show up here.',ref_link:'Your link',ref_site:'Website link — for friends without Telegram',ref_tg:'Bot link in Telegram',ref_qr_site:'Show this QR code to a friend — it opens the website with your link.',ref_qr:'Show this QR code to a friend — it opens the bot with your link.',devices_fail:'Could not reset devices',
  cancel:'Cancel',do_reset:'Reset',
- conn_title:'Connect',conn_text:'Install an app and tap “Add subscription” — it imports itself.',conn_qr:'Scan with another device to move the subscription',
+ conn_title:'Connect',conn_text:'Install an app and tap “Add subscription”.',conn_qr:'Scan with another device to move the subscription',
  conn_empty:'The app list is unavailable. Copy the link and add it to an app manually.',add_sub:'Add subscription',install:'Install',recommended:'Recommended',
  docs:'Documents',docs_gate:'Service documents',docs_gate_text:'Please read and accept — you only need to do it once.',docs_pay:'Before paying',accept:'I accept',open_full:'Open in full',
  support:'Support',group:'Our group',
@@ -550,6 +550,7 @@ async function api(path,opts){
   opts=opts||{};
   var h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
   if(TOKEN)h.Authorization='Bearer '+TOKEN;
+  subscriptionHeaders(path,h);
   var r=await fetch(path,Object.assign({},opts,{headers:h}));
   if(r.status===401&&!opts.noRetry&&!WEB&&tg&&tg.initData){
     await authenticate();
@@ -739,6 +740,7 @@ SCREENS.home=function(){
   var m=STATE.menu||{};
   if(m.legal_accept&&m.legal_gate_start&&legalDocs().length){legalGate();return;}
   var h=verifyBanner();
+  h+=subscriptionPicker();
   if(DESK)h+=homeDesk();
   else if(WEB)h+='<div class="cols"><div>'+subCard()+'</div><div>'+homeList()+'</div></div>';
   else h+=subCard()+homeList();
@@ -1160,24 +1162,35 @@ function cnPlatforms(c){
 }
 SCREENS.connect=async function(a){
   a=a||{};CUR.arg=a;
-  if(!a.c){view(backBtn()+'<div class="sk" style="height:240px"></div><div class="sk" style="height:160px"></div>');
-    try{a.c=await api('/api/miniapp/connect');}catch(e){toast(e.message||T('error'),'err');a.c={};}
+  var en=STATE.lang==='en';
+  if(!a.c){
+    var request=a.request=(a.request||0)+1;
+    view(backBtn()+'<div class="card" role="status">'+(en?'Loading connection options…':'Загружаем способы подключения…')+'</div>');
+    var response,error;
+    try{response=await fetchConnectScreen();}catch(e){error=e;}
+    if(!CUR||CUR.name!=='connect'||CUR.arg!==a||a.request!==request)return;
+    if(error||!response||response.unavailable){
+      view(backBtn()+'<div class="card" role="status">'+esc(connectLoadError(error,en))+'</div>'+
+        '<button class="btn sec" onclick="rerender()">'+(en?'Try again':'Повторить')+'</button>');
+      return;
+    }
+    a.c=response;
     var ps=cnPlatforms(a.c),want=detectOS();a.key=ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||'');
-    if(!CUR||CUR.arg!==a)return;}
+  }
   var c=a.c,ps=cnPlatforms(c),cur=null;ps.forEach(function(p){if(p.key===a.key)cur=p;});if(!cur)cur=ps[0]||null;
-  var sub=c.sub_url||(STATE.sub&&STATE.sub.sub_url)||'';
+  var sub=c.sub_url||'';
   var h=backBtn()+'<div class="h1" style="margin-top:8px">'+esc(T('conn_title'))+'</div><div class="hint">'+esc(T('conn_text'))+'</div>';
   var hT=h;h='';
   if(ps.length>1){h+='<div class="seg">';ps.forEach(function(p){h+='<button class="'+(cur&&p.key===cur.key?'on':'')+'" onclick="cnPlat(\''+jsq(p.key)+'\')">'+esc(p.label)+'</button>';});h+='</div>';}
   var apps=(cur&&cur.apps)||[];
-  if(!apps.length)h+='<div class="card empty">'+esc(T('conn_empty'))+'</div>';
+  if(!apps.length&&sub)h+='<div class="card empty">'+esc(T('conn_empty'))+'</div>';
   h+='<div class="plans-grid">';
   apps.forEach(function(x){
     h+='<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span class="h2" style="font-size:17px;min-width:0">'+esc(x.name)+'</span>'+(x.featured?'<span class="badge acc">'+esc(T('recommended'))+'</span>':'')+'</div>';
     if(x.add_desc)h+='<div class="hint">'+esc(x.add_desc)+'</div>';
     h+='<div class="stack" style="margin-top:12px">';
-    if(x.deeplink)h+='<button class="btn" onclick="openDeep(\''+jsq(x.deeplink)+'\')">'+IC.plus+esc(T('add_sub'))+'</button>';
     (x.installs||[]).forEach(function(b){h+='<button class="btn sec" onclick="openL(\''+jsq(b.url)+'\')">'+IC.download+esc(b.text||T('install'))+'</button>';});
+    h+=connectImportActions(x,sub,T('add_sub'));
     (x.copies||[]).forEach(function(b){h+='<button class="btn sec" onclick="copy(\''+jsq(b.url)+'\')">'+IC.copy+esc(b.text||T('copy_link'))+'</button>';});
     h+='</div>';
     (x.more||[]).forEach(function(b){
@@ -1189,7 +1202,8 @@ SCREENS.connect=async function(a){
   });
   h+='</div>';
   var hApps=h;h='';
-  if(sub){h+='<div class="card"><div class="link" style="margin-top:0" onclick="copy(\''+jsq(sub)+'\')"><code>'+esc(sub)+'</code>'+IC.copy+'</div><div class="qr" id="qrw"><div id="qr"></div></div><div class="hint center">'+esc(T('conn_qr'))+'</div></div>';}
+  if(sub){h+='<div class="card"><button class="btn sec" onclick="copy(\''+jsq(sub)+'\')">'+IC.copy+esc(T('copy_link'))+'</button><div class="link" style="margin-top:8px;user-select:text;overflow-wrap:anywhere"><code>'+esc(sub)+'</code></div><div class="qr" id="qrw"><div id="qr"></div></div><div class="hint center">'+esc(T('conn_qr'))+'</div></div>';}
+  else h+='<div class="card" role="status">'+(en?'No subscription link is available for this connection.':'Для выбранного подключения ссылка подписки недоступна.')+'</div>';
   h=DESK?dsplit(hT+h,hApps):hT+hApps+h;
   view(h);
   if(sub)drawQR(sub);
@@ -1382,6 +1396,7 @@ function dropQuery(){try{history.replaceState({},'',location.pathname);}catch(e)
 
 /* ---------- загрузка ---------- */
 async function refresh(){
+  await loadSubscriptions();
   var r=await Promise.all([api('/api/miniapp/me').then(function(m){mountChat(m.chat_src);return m;}),api('/api/miniapp/menu'),api('/api/miniapp/subscription'),api('/api/miniapp/plans')]);
   var me=r[0],menu=r[1],sub=r[2],plans=r[3];
   var extra=(STATE.plans||[]).filter(function(p){return p.link&&!(plans.plans||[]).some(function(q){return q.code===p.code;});});

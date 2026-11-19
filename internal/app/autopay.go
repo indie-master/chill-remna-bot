@@ -14,6 +14,7 @@ import (
 	"remnabot/internal/assets"
 	"remnabot/internal/i18n"
 	"remnabot/internal/model"
+	"remnabot/internal/remnawave"
 	"remnabot/internal/storage"
 	"remnabot/internal/yookassa"
 )
@@ -67,6 +68,26 @@ func (a *App) getAutoPay(ctx context.Context, chatID int64) *model.AutoPay {
 		a.log.Warn("autopay: чтение записи", "tg_id", chatID, "err", err)
 		return nil
 	}
+	if ap != nil && (a.multiSubscriptions() || remnawave.SubscriptionTargetID(ctx, chatID) != "") {
+		target, err := a.selectedSubscription(ctx, chatID)
+		if err != nil {
+			return nil
+		}
+		if ap.Snapshot != nil && ap.Snapshot.SubscriptionID != "" {
+			if target == nil || target.ID != ap.Snapshot.SubscriptionID {
+				return nil
+			}
+		} else if target != nil {
+			st, err := a.subscriptionStore()
+			if err != nil {
+				return nil
+			}
+			all, err := st.CustomerSubscriptions(ctx, chatID)
+			if err != nil || len(all) != 1 {
+				return nil
+			}
+		}
+	}
 	return ap
 }
 
@@ -95,7 +116,25 @@ func (a *App) saveAutoPayFromPayment(ctx context.Context, chatID int64, months i
 		a.payLog(ctx, model.PayMethodYooKassa, pay.ID, chatID, "error", "автопродление не подключено: в metadata платежа нет срока")
 		return
 	}
-	prev := a.getAutoPay(ctx, chatID)
+	prev, readErr := a.store.GetAutoPay(ctx, chatID)
+	if readErr != nil {
+		return
+	}
+	if prev != nil && prev.Enabled && snap != nil && snap.SubscriptionID != "" {
+		if prev.Snapshot != nil && prev.Snapshot.SubscriptionID != "" && prev.Snapshot.SubscriptionID != snap.SubscriptionID {
+			return
+		}
+		if prev.Snapshot == nil || prev.Snapshot.SubscriptionID == "" {
+			st, err := a.subscriptionStore()
+			if err != nil {
+				return
+			}
+			all, err := st.CustomerSubscriptions(ctx, chatID)
+			if err != nil || len(all) != 1 {
+				return
+			}
+		}
+	}
 	// Уже подключено — просто обновляем карту и период, ничего не спрашиваем.
 	alreadyOn := prev != nil && prev.Enabled && prev.MethodID != ""
 	ap := &model.AutoPay{
@@ -232,6 +271,10 @@ func (a *App) showAutoPay(ctx context.Context, chatID int64) {
 func (a *App) onAutoPayUser(ctx context.Context, chatID int64, val string) {
 	action, _, _ := strings.Cut(val, ":")
 	lang := a.lang(chatID)
+	if a.multiSubscriptions() && action != "show" && a.getAutoPay(ctx, chatID) == nil {
+		a.showAutoPay(ctx, chatID)
+		return
+	}
 	switch action {
 	case "show":
 		a.showAutoPay(ctx, chatID)
@@ -252,7 +295,14 @@ func (a *App) onAutoPayUser(ctx context.Context, chatID int64, val string) {
 			return
 		}
 		if a.store != nil {
-			_ = a.store.SetAutoPayEnabled(ctx, chatID, true)
+			if a.multiSubscriptions() {
+				if err := a.SetAutoPayEnabled(ctx, chatID, true); err != nil {
+					a.sendHome(ctx, chatID, a.clientErr(ctx, chatID, "автопродление", err))
+					return
+				}
+			} else {
+				_ = a.store.SetAutoPayEnabled(ctx, chatID, true)
+			}
 		}
 		a.payLog(ctx, model.PayMethodYooKassa, "", chatID, "autopay_on", "включено пользователем")
 		a.sendKBSection(ctx, chatID, assets.SectionMySubscription,
@@ -334,6 +384,11 @@ func (a *App) autoPayOnce(ctx context.Context) {
 // прошла, с прошлого успешного списания прошли сутки и до конца подписки
 // осталось не больше AutoPayDays дней.
 func (a *App) autoPayDue(ctx context.Context, ap *model.AutoPay, now time.Time) (time.Time, bool) {
+	scoped, _, scopeErr := a.dealSubscriptionContext(ctx, ap.TelegramID, ap.Snapshot)
+	if scopeErr != nil {
+		return time.Time{}, false
+	}
+	ctx = scoped
 	if !ap.Enabled || ap.MethodID == "" || ap.Method != model.PayMethodYooKassa {
 		return time.Time{}, false
 	}
@@ -350,7 +405,7 @@ func (a *App) autoPayDue(ctx context.Context, ap *model.AutoPay, now time.Time) 
 			return time.Time{}, false
 		}
 	}
-	u, err := a.store.GetUser(ctx, ap.TelegramID)
+	u, err := a.subscriptionUser(ctx, ap.TelegramID)
 	if err != nil || u == nil || u.Blocked {
 		return time.Time{}, false
 	}
@@ -455,6 +510,23 @@ func currencyCode(cur string) bool {
 // Возвращает непустую строку, если проблема на стороне магазина (её показываем
 // админу один раз за проход планировщика, а пользователя не трогаем).
 func (a *App) chargeAutoPay(ctx context.Context, ap *model.AutoPay, now, exp time.Time) string {
+	scoped, target, scopeErr := a.dealSubscriptionContext(ctx, ap.TelegramID, ap.Snapshot)
+	if scopeErr != nil {
+		return "нужно выбрать подписку для автопродления"
+	}
+	ctx = scoped
+	if target != nil && (ap.Snapshot == nil || ap.Snapshot.SubscriptionID == "") {
+		copy := *ap
+		copy.Snapshot = ap.Snapshot.ForRenewal()
+		if copy.Snapshot == nil {
+			copy.Snapshot = a.planSnapshot(ap.Months)
+		}
+		copy.Snapshot.SubscriptionID = target.ID
+		if err := a.store.UpdateAutoPaySnapshot(ctx, ap.TelegramID, copy.Snapshot); err != nil {
+			return "не удалось сохранить подписку для автопродления"
+		}
+		ap = &copy
+	}
 	// Проход по большой базе длится минуты: пользователь мог выключить
 	// автопродление после снятия снапшота ListAutoPay — перечитываем запись
 	// непосредственно перед списанием.
@@ -750,6 +822,27 @@ func (a *App) SetAutoPayEnabled(ctx context.Context, tgID int64, on bool) error 
 	}
 	if ap == nil || ap.MethodID == "" {
 		return fmt.Errorf("автопродление ещё не подключено")
+	}
+	if a.multiSubscriptions() || remnawave.SubscriptionTargetID(ctx, tgID) != "" {
+		if a.getAutoPay(ctx, tgID) == nil {
+			return fmt.Errorf("автопродление относится к другой подписке")
+		}
+		if on && (ap.Snapshot == nil || ap.Snapshot.SubscriptionID == "") {
+			sub, err := a.selectedSubscription(ctx, tgID)
+			if err != nil {
+				return err
+			}
+			if sub != nil {
+				snap := ap.Snapshot.ForRenewal()
+				if snap == nil {
+					snap = a.planSnapshot(ap.Months)
+				}
+				snap.SubscriptionID = sub.ID
+				if err := a.store.UpdateAutoPaySnapshot(ctx, tgID, snap); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	if on && !a.autoPayAvailable() {
 		return fmt.Errorf("автопродление отключено администратором")

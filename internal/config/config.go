@@ -9,9 +9,10 @@ import (
 )
 
 type Config struct {
-	BotToken string
-	AdminID  int64
-	DataDir  string
+	MultiSubscriptions bool
+	BotToken           string
+	AdminID            int64
+	DataDir            string
 	// StaticDir — папка с кастомной статикой мини-аппа/кабинета (оверлей поверх
 	// вшитой); env CUSTOM_STATIC_DIR, по умолчанию /custom. Если папки нет —
 	// работает вшитый дизайн.
@@ -54,16 +55,29 @@ func (c *Config) SlogLevel() slog.Level {
 }
 
 func Load() (*Config, error) {
+	multi, err := strconv.ParseBool(envOr("MULTI_SUBSCRIPTIONS_ENABLED", "false"))
+	if err != nil {
+		return nil, fmt.Errorf("MULTI_SUBSCRIPTIONS_ENABLED must be true or false")
+	}
+	secrets := make(map[string]string)
+	for _, key := range []string{"BOT_TOKEN", "CADDY_AUTH_API_TOKEN", "DATABASE_URL", "SECRET_KEY"} {
+		value, err := secretEnv(key)
+		if err != nil {
+			return nil, err
+		}
+		secrets[key] = value
+	}
 	c := &Config{
-		BotToken:  strings.TrimSpace(os.Getenv("BOT_TOKEN")),
-		DataDir:   envOr("DATA_DIR", "/data"),
-		StaticDir: envOr("CUSTOM_STATIC_DIR", "/custom"),
+		MultiSubscriptions: multi,
+		BotToken:           strings.TrimSpace(secrets["BOT_TOKEN"]),
+		DataDir:            envOr("DATA_DIR", "/data"),
+		StaticDir:          envOr("CUSTOM_STATIC_DIR", "/custom"),
 
-		CaddyAuthToken: strings.TrimSpace(os.Getenv("CADDY_AUTH_API_TOKEN")),
+		CaddyAuthToken: strings.TrimSpace(secrets["CADDY_AUTH_API_TOKEN"]),
 
 		DBKind:       strings.TrimSpace(os.Getenv("DB_KIND")),
-		DatabaseURL:  strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		SecretKey:    os.Getenv("SECRET_KEY"),
+		DatabaseURL:  strings.TrimSpace(secrets["DATABASE_URL"]),
+		SecretKey:    secrets["SECRET_KEY"],
 		PremiumEmoji: parseEmojiMap(os.Getenv("PREMIUM_EMOJI")),
 		LogLevel:     strings.TrimSpace(os.Getenv("LOG_LEVEL")),
 	}

@@ -115,6 +115,9 @@ func (a *App) miniPayURLCore(ctx context.Context, tgID int64, s *sale, method st
 		return url, false, err
 
 	case model.PayMethodTribute:
+		if !a.tributeSubscriptionSupported(ctx, tgID) {
+			return "", false, errUserText("Выберите другой способ оплаты для этой подписки")
+		}
 		// Tribute выдаёт подписку по telegram_user_id покупателя: аккаунту
 		// кабинета без Telegram (отрицательный ID) её не сопоставить.
 		if tgID <= 0 {

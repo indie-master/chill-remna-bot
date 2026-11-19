@@ -318,11 +318,16 @@ func (a *App) setBuyIntent(ctx context.Context, chatID int64, planCode string, m
 	if planCode == "" {
 		planCode = model.PlanCodeBase
 	}
+	target, err := a.saleSubscriptionID(ctx, chatID)
+	if err != nil {
+		return err
+	}
 	return st.SetPurchaseIntent(ctx, &model.PurchaseIntent{
-		TelegramID: chatID,
-		PlanCode:   planCode,
-		Months:     months,
-		ShownPrice: shownPrice,
+		SubscriptionID: target,
+		TelegramID:     chatID,
+		PlanCode:       planCode,
+		Months:         months,
+		ShownPrice:     shownPrice,
 	})
 }
 

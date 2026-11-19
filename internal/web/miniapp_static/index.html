@@ -538,11 +538,13 @@ async function authenticate(){
 async function api(path,opts={}){
   const h=Object.assign({'Content-Type':'application/json'},opts.headers||{});
   if(TOKEN)h['Authorization']='Bearer '+TOKEN;
+  subscriptionHeaders(path,h);
   const r=await fetch(path,Object.assign({},opts,{headers:h}));
   if(r.status===401&&!opts.noRetry&&!WEB&&tg&&tg.initData){
     await authenticate();
     const h2=Object.assign({'Content-Type':'application/json'},opts.headers||{});
     h2['Authorization']='Bearer '+TOKEN;
+    subscriptionHeaders(path,h2);
     const r2=await fetch(path,Object.assign({},opts,{headers:h2}));
     if(!r2.ok)throw mkErr(r2.status,null);
     return r2.json();
@@ -663,6 +665,7 @@ function render(me,menu,sub,plans){
   if(WEB){var who=STATE.me_email||STATE.me_name||'Аккаунт';var ini=(String(who).trim().charAt(0)||'?').toUpperCase();ub='<div class="ublock"><div class="uava" data-ava>'+avaHTML(ini)+'</div><div class="uinfo"><div class="uname">'+esc(who)+'</div><div class="usub">'+(STATE.me_email?'email-аккаунт':'Telegram')+'</div></div><button class="btn sec ulogout" onclick="cabLogout()">Выйти</button></div>';}
   let h='<div class="stagger">';
   h+=verifyBanner();
+  h+=subscriptionPicker();
   if(sub.active){
     var pass=passHTML(sub);
     h+='<div class="acctgrp">'+ub+pass+'</div>';
@@ -710,6 +713,7 @@ function render(me,menu,sub,plans){
 // ссылка подписки и автопродление, ниже тарифы карточками.
 function renderHomeDesk(menu,sub){
   var h='<div class="stagger">'+verifyBanner();
+  h+=subscriptionPicker();
   if(sub.active){
     var right='';
     if(sub.sub_url)right+='<div class="card"><div class="lab2">Ссылка подписки</div><div class="lrow"><div class="mono">'+esc(sub.sub_url)+'</div>'+
@@ -1328,7 +1332,7 @@ async function topupPay(kopecks,method,el){
 }
 
 /* ---- connect (apps + deeplinks + QR) ---- */
-var CONNECT=null,CONNECT_KEY='';
+var CONNECT=null,CONNECT_KEY='',CONNECT_REQUEST=0;
 function detectOS(){
   try{var p=(tg&&tg.platform)||'';if(p==='ios')return 'ios';if(p==='android')return 'android';if(p==='windows')return 'windows';if(p==='linux')return 'linux';if(p==='macos')return WEB?'macos':'ios';}catch(e){}
   var ua=(navigator.userAgent||'').toLowerCase();
@@ -1355,13 +1359,25 @@ function connectList(){var p=curPlatform();return (p&&p.apps)||[];}
 // сервера уже обработан внятно: «скопируйте ссылку и добавьте вручную».
 async function openConnect(){
   PAGE='connect';
-  haptic('tap');skSimple();setBack(boot);
+  var request=++CONNECT_REQUEST,back='<button class="btn ghost back" onclick="boot()">← Назад</button>';
+  CONNECT=null;CONNECT_KEY='';
+  haptic('tap');
+  view('<div class="card" role="status">Загружаем способы подключения…</div>'+back,boot);
+  var response,error;
   try{
-    var d=await api('/api/miniapp/connect');CONNECT=d;
-    var ps=cnPlatforms();var want=detectOS();
-    CONNECT_KEY=(ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||''));
-    renderConnect();
-  }catch(e){haptic('err');toast('Ошибка: '+e.message,'err');boot();}
+    response=await fetchConnectScreen();
+  }catch(e){error=e;}
+  if(PAGE!=='connect'||request!==CONNECT_REQUEST)return;
+  if(error||!response||response.unavailable){
+    haptic('err');
+    view('<div class="card" role="status">'+esc(connectLoadError(error,false))+'</div>'+
+      '<button class="btn sec" onclick="openConnect()">Повторить</button>'+back,boot);
+    return;
+  }
+  CONNECT=response;
+  var ps=cnPlatforms(),want=detectOS();
+  CONNECT_KEY=ps.some(function(p){return p.key===want;})?want:((ps[0]&&ps[0].key)||'');
+  renderConnect();
 }
 function setPlat(key){haptic('tap');CONNECT_KEY=key;renderConnect();}
 function drawQR(text){
@@ -1377,13 +1393,13 @@ function drawQR(text){
 function renderConnect(){
   var d=CONNECT||{};
   var h='<div class="stagger"><div class="card hero glow"><div class="top"><span class="status">'+IC.download+' Подключение</span>'+IC.globe+'</div>'+
-    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку» — она импортируется сама.</div>';
+    '<div class="title">Установите приложение</div><div class="hint" style="margin-top:4px">Установите приложение и нажмите «Добавить подписку».</div>';
   if(d.sub_url)h+='<div id="qrwrap" style="display:flex;flex-direction:column;align-items:center;margin-top:16px"><div id="qrbox" class="qrbox"></div>'+
     '<div class="hint center" style="margin-top:8px">Наведите камеру другого устройства, чтобы перенести подписку</div></div>';
   h+='</div>';
-  // На компьютере ссылку часто вставляют в программу вручную — кнопка нужна и
-  // при списке приложений.
-  if(DESK&&d.sub_url&&connectList().length)h+='<button class="btn sec" style="margin-top:0" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку</button>';
+  if(d.sub_url)h+='<button class="btn sec" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку подписки</button>'+
+    '<details class="xblk"><summary>Показать ссылку</summary><div class="xtext" style="overflow-wrap:anywhere;user-select:text">'+esc(d.sub_url)+'</div></details>';
+  else h+='<div class="card" role="status">Для выбранного подключения ссылка подписки недоступна.</div>';
   var hl=h;h='';
   var ps=cnPlatforms();
   if(ps.length>1){
@@ -1393,18 +1409,17 @@ function renderConnect(){
   }
   var list=connectList();
   var grid=list.length>1;
-  if(!list.length){
+  if(!list.length&&d.sub_url){
     h+='<div class="hint center" style="margin-top:16px">Список приложений недоступен. Скопируйте ссылку и добавьте её в приложение вручную.</div>';
-    if(d.sub_url)h+='<button class="btn sec" style="margin-top:10px" onclick="copy(\''+jsq(d.sub_url)+'\')">'+IC.copy+'Скопировать ссылку</button>';
   }
   if(grid)h+='<div class="cols">';
   list.forEach(function(ap){
     h+='<div class="appc'+(ap.featured?' feat':'')+'"><div class="apphead"><span class="appname">'+esc(ap.name)+(ap.featured?'<span class="fbadge">Рекомендуем</span>':'')+'</span></div>';
     if(ap.add_desc)h+='<div class="appdesc">'+esc(ap.add_desc)+'</div>';
-    if(ap.deeplink)h+='<button class="btn" onclick="openDeep(\''+jsq(ap.deeplink)+'\')">'+IC.plus+'Добавить подписку</button>';
     (ap.installs||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="openL(\''+jsq(b.url)+'\')">'+IC.download+esc(b.text||'Установить')+'</button>';
     });
+    h+=connectImportActions(ap,d.sub_url,'Добавить подписку');
     (ap.copies||[]).forEach(function(b){
       h+='<button class="btn sec" onclick="copy(\''+jsq(b.url)+'\')">'+IC.copy+esc(b.text||'Скопировать ссылку')+'</button>';
     });
@@ -1720,6 +1735,7 @@ async function boot(){
     else if(!STATE.startDone){STATE.startDone=true;try{start=(tg.initDataUnsafe&&tg.initDataUnsafe.start_param)||'';}catch(e){}}
     PAGE='home';skMain();renderSide();
     if(!WEB)await authenticate();
+    await loadSubscriptions();
     const [me,menu,sub,plans]=await Promise.all([
       api('/api/miniapp/me').then(function(m){mountChat(m.chat_src);return m;}),api('/api/miniapp/menu'),
       api('/api/miniapp/subscription'),api('/api/miniapp/plans')]);

@@ -425,6 +425,11 @@ func (a *App) activateTrial(ctx context.Context, chatID int64) {
 // пользователю. ok=false — триал недоступен (выдачи не было); expireAt тогда
 // непуст, если вместо триала нашлась и привязалась живая учётка в панели.
 func (a *App) trialOnce(ctx context.Context, chatID int64) (link, expireAt string, ok bool, err error) {
+	if a.multiSubscriptions() {
+		if _, err := a.discoverSubscriptions(ctx, chatID); err != nil {
+			return "", "", true, err
+		}
+	}
 	lk := &a.finalizeUserLk[extLockIndex(strconv.FormatInt(chatID, 10))]
 	lk.Lock()
 	defer lk.Unlock()

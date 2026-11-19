@@ -599,6 +599,9 @@ func (b *base) SetBlocked(ctx context.Context, telegramID int64, blocked bool) e
 }
 
 func (b *base) DeleteUser(ctx context.Context, telegramID int64) error {
+	if _, err := b.db.ExecContext(ctx, "DELETE FROM customer_subscriptions WHERE telegram_id = "+b.ph(1), telegramID); err != nil {
+		return err
+	}
 	// Автосписание лежит в отдельной таблице: если не удалить его вместе с
 	// пользователем, планировщик продолжит списывать деньги за удалённого.
 	// #nosec G202 -- b.ph выдаёт только placeholder драйвера ($1/?), значения передаются биндовыми параметрами
@@ -1433,19 +1436,22 @@ func (b *base) SetUserSnapshot(ctx context.Context, telegramID int64, snap *mode
 		// #nosec G202 -- b.ph выдаёт только placeholder драйвера ($1/?), значения передаются биндовыми параметрами
 		"INSERT INTO users (telegram_id, p2p_approved, created_at, plan_snapshot) VALUES ("+b.ph(1)+", 0, "+b.ph(2)+", "+b.ph(3)+") "+
 			"ON CONFLICT (telegram_id) DO UPDATE SET plan_snapshot = excluded.plan_snapshot",
-		telegramID, nowStr(), snap.Encode())
+		telegramID, nowStr(), snap.ForRenewal().Encode())
 	return err
 }
 
 type Snapshot struct {
-	Config    *model.BotConfig
-	Users     []model.User
-	Payments  []model.Payment
-	P2P       []model.P2PRequest
-	Media     []MediaItem
-	Promos    []model.PromoCode
-	PromoUses []PromoUse
-	PayLogs   []model.PayLogEntry
+	Subscriptions          []model.CustomerSubscription
+	SubscriptionSelections []model.SubscriptionSelection
+	SubscriptionOperations []model.SubscriptionOperation
+	Config                 *model.BotConfig
+	Users                  []model.User
+	Payments               []model.Payment
+	P2P                    []model.P2PRequest
+	Media                  []MediaItem
+	Promos                 []model.PromoCode
+	PromoUses              []PromoUse
+	PayLogs                []model.PayLogEntry
 	// AutoPays и Pendings раньше в снимок не входили: после переезда базы
 	// или восстановления из бэкапа подключённые автосписания пропадали, а
 	// незакрытые счета переставали добиваться реконсилятором.
@@ -1649,7 +1655,7 @@ func (b *base) Export(ctx context.Context) (*Snapshot, error) {
 	}
 	for intentRows.Next() {
 		var in model.PurchaseIntent
-		if err := intentRows.Scan(&in.TelegramID, &in.PlanCode, &in.Months, &in.Days, &in.CreatedAt, &in.ShownPrice); err != nil {
+		if err := intentRows.Scan(&in.TelegramID, &in.PlanCode, &in.Months, &in.Days, &in.CreatedAt, &in.ShownPrice, &in.SubscriptionID); err != nil {
 			_ = intentRows.Close()
 			return nil, err
 		}
@@ -1783,12 +1789,18 @@ func (b *base) Export(ctx context.Context) (*Snapshot, error) {
 	}
 	_ = irows.Close()
 
+	if err := b.exportSubscriptions(ctx, snap); err != nil {
+		return nil, err
+	}
 	return snap, nil
 }
 
 func (b *base) Import(ctx context.Context, s *Snapshot) error {
 	if s == nil {
 		return nil
+	}
+	if err := b.importSubscriptions(ctx, s); err != nil {
+		return err
 	}
 	for i := range s.Users {
 		if err := b.importUser(ctx, &s.Users[i]); err != nil {
@@ -2824,7 +2836,7 @@ func (b *base) UpdateAutoPaySnapshot(ctx context.Context, telegramID int64, snap
 	_, err := b.db.ExecContext(ctx,
 		// #nosec G202 -- b.ph выдаёт только placeholder драйвера ($1/?), значения передаются биндовыми параметрами
 		"UPDATE autopay SET plan_snapshot = "+b.ph(1)+" WHERE telegram_id = "+b.ph(2),
-		snap.Encode(), telegramID)
+		snap.ForRenewal().Encode(), telegramID)
 	return err
 }
 
@@ -2846,7 +2858,7 @@ func (b *base) SetAutoPay(ctx context.Context, ap *model.AutoPay) error {
 			"plan_snapshot = excluded.plan_snapshot",
 		ap.TelegramID, ap.Method, ap.MethodID, ap.Title, ap.Months, ap.Amount, ap.Currency,
 		boolToInt(ap.Enabled), ap.CreatedAt, ap.LastPayAt, ap.PaidPeriod, ap.NextTryAt, ap.Fails, ap.LastError,
-		ap.Snapshot.Encode())
+		ap.Snapshot.ForRenewal().Encode())
 	return err
 }
 

@@ -512,11 +512,12 @@ type MiniConnectPlatformDTO struct {
 }
 
 type MiniConnectDTO struct {
-	SubURL    string                   `json:"sub_url,omitempty"`
-	Username  string                   `json:"username,omitempty"`
-	Platforms []MiniConnectPlatformDTO `json:"platforms,omitempty"`
-	Android   []MiniConnectAppDTO      `json:"android,omitempty"`
-	IOS       []MiniConnectAppDTO      `json:"ios,omitempty"`
+	SubURL      string                   `json:"sub_url,omitempty"`
+	Username    string                   `json:"username,omitempty"`
+	Unavailable bool                     `json:"unavailable,omitempty"`
+	Platforms   []MiniConnectPlatformDTO `json:"platforms,omitempty"`
+	Android     []MiniConnectAppDTO      `json:"android,omitempty"`
+	IOS         []MiniConnectAppDTO      `json:"ios,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -621,6 +622,19 @@ func (s *Server) miniGuard(w http.ResponseWriter, r *http.Request) (id int64, we
 	if !ok {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return 0, false, false
+	}
+	if target := r.Header.Get("X-Subscription-ID"); target != "" {
+		provider, available := s.mini.(subscriptionScopeProvider)
+		if !available || len(target) > 128 {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "подписка недоступна"})
+			return 0, false, false
+		}
+		ctx, err := provider.MiniSubscriptionScope(r.Context(), id, target)
+		if err != nil {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "подписка недоступна"})
+			return 0, false, false
+		}
+		*r = *r.WithContext(ctx)
 	}
 	// Признак поверхности из пропуска сверяется с тем, включена ли она.
 	// Раньше страж пускал, если включена ЛЮБАЯ из двух: админ выключал
@@ -961,6 +975,7 @@ func (v *jsonID) UnmarshalJSON(b []byte) error {
 }
 
 func (s *Server) handleMiniConnect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	id, _, ok := s.miniGuard(w, r)
 	if !ok {
 		return
